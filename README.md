@@ -4,7 +4,7 @@
 **Team Members**
 - [Alex McKinney](https://github.com/vvvm23)
 - [Khalid Saifullah](https://github.com/khalidsaifullaah)
-- [HatmanStack](https://github.com/HatmanStack)
+- [Christopher Galliart](https://github.com/HatmanStack)
 
 ## Repo Map
 - `sundae/` - 2D Hourglass Transformer Code 
