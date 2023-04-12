@@ -1,0 +1,13 @@
+jax
+flax
+optax
+einops
+torch
+torchvision
+tqdm
+
+transformers
+omegaconf
+pytorch-lightning
+
+git+ssh://git@github.com:vvvm23/vqgan-ldm-jax.git
