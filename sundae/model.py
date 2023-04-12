@@ -305,8 +305,25 @@ class HourglassTransformerLM(nn.Module):
 
     return nn.Dense(self.num_tokens)(x)
 
-# alias for aesthetics
-SundaeModel = HourglassTransformerLM
+class SundaeModel(nn.Module):
+    config: dict
+
+    @nn.compact
+    def __call__(self, x: ArrayLike, mask: Optional[ArrayLike] = None):
+        config = self.config
+        return HourglassTransformerLM(
+              num_tokens = config.num_tokens,
+              dim = config.dim,
+              depth = config.depth,
+              shorten_factor = config.shorten_factor,
+              resample_type = config.resample_type,
+              heads = config.heads,
+              dim_head = config.dim_head,
+              rotary_emb_dim = config.rotary_emb_dim,
+              max_seq_len = config.max_seq_len,
+              parallel_block = config.parallel_block,
+              tied_embedding = config.tied_embedding,
+        )(x, mask=mask)
 
 if __name__ == '__main__':
     jax.config.update('jax_platform_name', 'cpu')
