@@ -31,6 +31,7 @@ boto3 @ file:///tmp/abs_ae3c72db-af47-4298-baea-7270430e2c96scbpg1_h/croots/reci
 botocore @ file:///opt/conda/conda-bld/botocore_1657739486257/work
 Bottleneck @ file:///opt/conda/conda-bld/bottleneck_1657175564434/work
 brotlipy==0.7.0
+bunch==1.0.1
 cached-property==1.5.2
 certifi==2022.12.7
 cffi @ file:///tmp/abs_98z5h56wf8/croots/recipe/cffi_1659598650955/work
@@ -288,7 +289,7 @@ spyder @ file:///opt/conda/conda-bld/spyder_1663056818299/work
 spyder-kernels @ file:///opt/conda/conda-bld/spyder-kernels_1662457880976/work
 SQLAlchemy @ file:///tmp/abs_18b3238f-9c23-4182-a392-63af30a93c1er8j_yw60/croots/recipe/sqlalchemy_1657867856580/work
 statsmodels @ file:///tmp/build/80754af9/statsmodels_1648015433305/work
--e git+https://github.com/vvvm23/diffusers-sprint-sundae.git@a6b390b2da9a72d18fe6fb8f67a17a21599b909b#egg=sundae
+-e git+https://github.com/vvvm23/diffusers-sprint-sundae.git@2effebcdffe9b198c85b9a6580467352d768049a#egg=sundae
 sympy @ file:///tmp/build/80754af9/sympy_1647853653589/work
 tables @ file:///tmp/build/80754af9/pytables_1607975397488/work
 tabulate @ file:///opt/conda/conda-bld/tabulate_1657784105888/work
