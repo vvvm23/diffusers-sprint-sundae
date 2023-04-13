@@ -116,7 +116,7 @@ def main(config, args):
                 f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
             # TODO: wandb logging plz: Hatman
-            # TODO: we should log the raw value of loss/acc for wandb, not scaled by (i+1) 
+            # TODO: we should log the raw value of loss/acc for wandb, not scaled by (i+1)
             # TODO: or really, we should log every N and avg over that
             # wandb.log({"loss": total_loss / (i+1), "accuracy": total_accuracy / (i+1)})
             break
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     # need something like a yaml config loader or whatever format. Or use
     # SimpleParsing and we can have config files with arg overrides which are
     # also hierarchical
-    
+
     """
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-s", "--seed", type=int, default=42)
@@ -189,6 +189,5 @@ if __name__ == "__main__":
     # Hatman: To eliminate dict_to_namespace
     args = Bunch(dict(seed=0xFFFF))
     # args = dict_to_namespace()
-
 
     main(dict_to_namespace(config), args)

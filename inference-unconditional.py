@@ -24,10 +24,11 @@ from utils import dict_to_namespace
 from sundae import SundaeModel
 import argparse
 
-def setup_sample_dir(root: str = 'samples', prompt: Optional[str] = None):
+
+def setup_sample_dir(root: str = "samples", prompt: Optional[str] = None):
     sample_root = Path(root)
     sample_root.mkdir(exist_ok=True)
-    
+
     if prompt is not None:
         prompt_dir = sample_root / prompt
     else:
@@ -39,6 +40,7 @@ def setup_sample_dir(root: str = 'samples', prompt: Optional[str] = None):
     sample_dir.mkdir(exist_ok=True)
 
     return sample_dir
+
 
 def main(config, args):
     print("Config:", config)
@@ -57,7 +59,9 @@ def main(config, args):
     sample_dir = setup_sample_dir()
 
     print(f"Restoring model from {args.checkpoint}")
-    state_restored = checkpoints.restore_checkpoint(ckpt_dir=args.checkpoint, target=None, step=args.checkpoint_step)
+    state_restored = checkpoints.restore_checkpoint(
+        ckpt_dir=args.checkpoint, target=None, step=args.checkpoint_step
+    )
     print(state_restored)
     params = state_restored.params
     del state_restored
@@ -65,15 +69,23 @@ def main(config, args):
     model = SundaeModel(config.model)
 
     key, subkey = jax.random.split(key)
-    sample = jax.random.randint(subkey, (args.batch_size, config.model.max_seq_len*config.model.max_seq_len), 0, config.model.num_tokens, dtype=jnp.int32)
+    sample = jax.random.randint(
+        subkey,
+        (args.batch_size, config.model.max_seq_len * config.model.max_seq_len),
+        0,
+        config.model.num_tokens,
+        dtype=jnp.int32,
+    )
 
     print("Beginning sampling loop")
     # TODO: jit loop properly. don't naively jit loop as compile time will scale with sample steps
     for i in tqdm.trange(args.sample_steps):
-        logits = model.apply({'params': params}, sample)
+        logits = model.apply({"params": params}, sample)
 
         key, subkey = jax.random.split(key)
-        new_sample = jax.random.categorical(subkey, logits / args.sample_temperature, axis=-1)
+        new_sample = jax.random.categorical(
+            subkey, logits / args.sample_temperature, axis=-1
+        )
 
         key, subkey = jax.random.split(key)
 
@@ -95,18 +107,23 @@ def main(config, args):
 
     print(f"Saving to {sample_dir.as_posix()}")
     for img in decoded_samples:
-        custom_to_pil(np.asarray(img)).save(sample_dir / 'sample-0.png')
+        custom_to_pil(np.asarray(img)).save(sample_dir / "sample-0.png")
+
 
 if __name__ == "__main__":
     # TODO: add proper argparsing!: Hatman
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--checkpoint', type=str, default=None)
-    parser.add_argument('--checkpoint-step', type=int, default=None, help='`None` loads latest.')
-    parser.add_argument('--seed', type=int, default=0xffff)
-    parser.add_argument('--batch-size', type=int, default=1)
-    parser.add_argument('--sample-steps', type=int, default=100)
-    parser.add_argument('--sample-temperature', type=float, default=0.7)
-    parser.add_argument('--sample-proportion', type=float, default=0.5)
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument(
+        "--checkpoint-step", type=int, default=None, help="`None` loads latest."
+    )
+    parser.add_argument("--seed", type=int, default=0xFFFF)
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--sample-steps", type=int, default=100)
+    parser.add_argument("--sample-temperature", type=float, default=0.7)
+    parser.add_argument("--sample-proportion", type=float, default=0.5)
     args = parser.parse_args()
 
     config = dict(

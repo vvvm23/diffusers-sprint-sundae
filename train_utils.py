@@ -25,7 +25,7 @@ def build_train_step(config: dict, vqgan: nn.Module):
         model = SundaeModel(config.model)
         batch = einops.rearrange(batch, "n c h w -> n h w c")
         batch = preprocess_vqgan(batch)
-        _, batch = vqgan(batch) # TODO: we only need to encode!!!
+        _, batch = vqgan(batch)  # TODO: we only need to encode!!!
 
         def loss_fn(params, key):
             losses = []
