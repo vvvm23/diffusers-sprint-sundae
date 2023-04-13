@@ -42,8 +42,34 @@ from utils import dict_to_namespace
 
 # Hatman: added imports for wandb, argparse, and bunch
 import wandb
-import argparse
-from bunch import Bunch
+# import argparse
+# from bunch import Bunch
+
+from absl import (
+    app,
+    flags,
+    logging
+)
+
+from clu import platform
+
+from ml_collections import config_flags
+
+
+FLAGS = flags.FLAGS
+
+OUTPUT_DIR = flags.DEFINE_string(
+    "output_dir",
+    None,
+    "An output directory for logs and checkpoints."
+)
+config_flags.DEFINE_config_file(
+    "config",
+    None,
+    "Path to training hyperparameter file."
+)
+flags.mark_flags_as_required(["config", "output_dir"])
+
 
 
 # TODO: expand for whatever datasets we will use
@@ -83,21 +109,31 @@ def create_train_state(key, config: dict):
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
 
-def main(config, args):
-    print("Config:", config)
-    print("Args:", args)
+def main(argv):
+    del argv
 
-    print("JAX devices:", jax.devices())
+    jax.config.update("jax_log_compiles", True)
 
-    key = jax.random.PRNGKey(args.seed)
-    print("Random seed:", args.seed)
+    logging.info(f"JAX XLA backend: {FLAGS.jax_xla_backend or 'None'}")
+    logging.info(f"JAX process: {jax.process_index()} / {jax.process_count()}")
+    logging.info(f"JAX local devices: {jax.local_devices()}")
+    platform.work_unit().set_task_status(
+        f"process_index: {jax.process_index()}, "
+        f"process_count: {jax.process_count()}"
+    )
 
-    print(f"Loading dataset '{config.data.name}'")
+    logging.info(f"Config: {FLAGS.config}")
+
+    config = FLAGS.config
+
+    key = jax.random.PRNGKey(config.seed)
+
+    logging.info(f"Loading dataset '{config.data.name}'")
     _, loader = get_data_loader(
         config.data.name, config.data.batch_size, config.data.num_workers
     )
 
-    print(f"Loading VQ-GAN")
+    logging.info(f"Loading VQ-GAN")
     vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
         config.vqgan.name, dtype=config.vqgan.dtype
     )
@@ -107,7 +143,7 @@ def main(config, args):
 
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
-    print(f"Saving checkpoints to directory {save_name}")
+    logging.info(f"Saving checkpoints to directory {save_name}")
     train_step = build_train_step(config, vqgan)
 
     # TODO: wandb logging plz: Hatman
@@ -168,37 +204,39 @@ if __name__ == "__main__":
     parser.add_argument("-jit", "--jit_enabled", type=bool, default=True)
     config = parser.parse_args()
     """
-    config = dict(
-        data=dict(
-            name="ffhq256",
-            batch_size=48,  # TODO: really this shouldn't be under data, it affects the numerics of the model
-            num_workers=4,
-        ),
-        model=dict(
-            num_tokens=16_384,
-            dim=1024,
-            depth=[2, 12, 2],
-            shorten_factor=4,
-            resample_type="linear",
-            heads=8,
-            dim_head=64,
-            rotary_emb_dim=32,
-            max_seq_len=16, # effectively squared to 256
-            parallel_block=True,
-            tied_embedding=False,
-            dtype=jnp.bfloat16,
-        ),
-        training=dict(
-            learning_rate=1e-4,
-            unroll_steps=2,
-            epochs=100,  # TODO: maybe replace with train steps
-        ),
-        vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
-        jit_enabled=True,
-    )
+    # config = dict(
+    #     data=dict(
+    #         name="ffhq256",
+    #         batch_size=48,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+    #         num_workers=4,
+    #     ),
+    #     model=dict(
+    #         num_tokens=16_384,
+    #         dim=1024,
+    #         depth=[2, 12, 2],
+    #         shorten_factor=4,
+    #         resample_type="linear",
+    #         heads=8,
+    #         dim_head=64,
+    #         rotary_emb_dim=32,
+    #         max_seq_len=16, # effectively squared to 256
+    #         parallel_block=True,
+    #         tied_embedding=False,
+    #         dtype=jnp.bfloat16,
+    #     ),
+    #     training=dict(
+    #         learning_rate=1e-4,
+    #         unroll_steps=2,
+    #         epochs=100,  # TODO: maybe replace with train steps
+    #     ),
+    #     vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
+    #     jit_enabled=True,
+    # )
 
-    # Hatman: To eliminate dict_to_namespace
-    args = Bunch(dict(seed=0xFFFF))
-    # args = dict_to_namespace()
+    # # Hatman: To eliminate dict_to_namespace
+    # args = Bunch(dict(seed=0xFFFF))
+    # # args = dict_to_namespace()
 
-    main(dict_to_namespace(config), args)
+    # main(dict_to_namespace(config), args)
+    jax.config.config_with_absl()
+    app.run(main)
