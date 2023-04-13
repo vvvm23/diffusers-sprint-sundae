@@ -40,6 +40,7 @@ charset-normalizer @ file:///tmp/build/80754af9/charset-normalizer_1630003229654
 chex==0.1.7
 click @ file:///tmp/build/80754af9/click_1646056590078/work
 cloudpickle @ file:///tmp/build/80754af9/cloudpickle_1632508026186/work
+clu==0.0.8
 clyent==1.2.2
 colorama @ file:///opt/conda/conda-bld/colorama_1657009087971/work
 colorcet @ file:///tmp/build/80754af9/colorcet_1651851439427/work
@@ -291,7 +292,7 @@ spyder @ file:///opt/conda/conda-bld/spyder_1663056818299/work
 spyder-kernels @ file:///opt/conda/conda-bld/spyder-kernels_1662457880976/work
 SQLAlchemy @ file:///tmp/abs_18b3238f-9c23-4182-a392-63af30a93c1er8j_yw60/croots/recipe/sqlalchemy_1657867856580/work
 statsmodels @ file:///tmp/build/80754af9/statsmodels_1648015433305/work
--e git+https://github.com/vvvm23/diffusers-sprint-sundae.git@e89d684d26e0fce6e18d1a1b6ea902627fe78549#egg=sundae
+-e git+https://github.com/vvvm23/diffusers-sprint-sundae.git@89d017d5f4772695add7f1ff5a6672d334fa6067#egg=sundae
 sympy @ file:///tmp/build/80754af9/sympy_1647853653589/work
 tables @ file:///tmp/build/80754af9/pytables_1607975397488/work
 tabulate @ file:///opt/conda/conda-bld/tabulate_1657784105888/work
