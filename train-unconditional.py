@@ -1,5 +1,21 @@
+from typing import (
+    Callable, 
+    Optional, 
+    Sequence, 
+    Union, 
+    Literal
+)
+
+import datetime
+from pathlib import Path
+
+import numpy as np
+
 import jax
-from jax import lax, numpy as jnp
+from jax import (
+    lax, 
+    numpy as jnp
+)
 from jax.typing import ArrayLike
 
 import flax
@@ -8,16 +24,12 @@ from flax.training import train_state, checkpoints
 
 import optax
 
-from typing import Callable, Optional, Sequence, Union, Literal
-
-import numpy as np
-
 from torch.utils.data import DataLoader
 import torchvision.transforms as T
-from torchvision.datasets import MNIST, ImageFolder
-
-import datetime
-from pathlib import Path
+from torchvision.datasets import (
+    MNIST, 
+    ImageFolder
+)
 
 import tqdm
 
