@@ -100,6 +100,7 @@ def main(config, args):
     train_step = build_train_step(config, vqgan)
 
     # TODO: wandb logging plz: Hatman
+    # TODO: need flag to toggle on and off otherwise we will pollute project
     # wandb.init(project="diffusers-sprint-sundae", config=config)
 
     for ei in range(config.training.epochs):
@@ -119,7 +120,6 @@ def main(config, args):
             # TODO: we should log the raw value of loss/acc for wandb, not scaled by (i+1)
             # TODO: or really, we should log every N and avg over that
             # wandb.log({"loss": total_loss / (i+1), "accuracy": total_accuracy / (i+1)})
-            break
 
         checkpoints.save_checkpoint(ckpt_dir=save_name, target=state, step=ei)
 
@@ -166,19 +166,19 @@ if __name__ == "__main__":
         model=dict(
             num_tokens=16_384,
             dim=1024,
-            depth=[2, 10, 2],
+            depth=[2, 12, 2],
             shorten_factor=4,
             resample_type="linear",
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
-            max_seq_len=16,
+            max_seq_len=16, # effectively squared to 256
             parallel_block=True,
             tied_embedding=False,
             dtype=jnp.bfloat16,
         ),
         training=dict(
-            learning_rate=4e-4,
+            learning_rate=1e-4,
             unroll_steps=2,
             epochs=100,  # TODO: maybe replace with train steps
         ),
