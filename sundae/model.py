@@ -1,16 +1,30 @@
+from typing import (
+    Callable,
+    Optional,
+    Sequence,
+    Literal,
+    Union
+)
+
+from math import sqrt
+
 import jax
-from jax import lax, numpy as jnp
+from jax import (
+    lax, 
+    numpy as jnp
+)
 from jax.typing import ArrayLike
 
 import flax
 import flax.linen as nn
 
-from typing import Callable, Optional, Sequence, Union, Literal
-
 import einops
-from math import sqrt
 
-from .rotary_embeddings import broadcat, generate_embeddings, apply_rotary_emb
+from sundae.rotary_embeddings import (
+    broadcat, 
+    generate_embeddings, 
+    apply_rotary_emb
+)
 
 
 def exists(val):
@@ -232,7 +246,7 @@ class HourglassTransformer(nn.Module):
         pre_layers_depth, valley_depth, post_layers_depth = self.depth
 
         if isinstance(self.shorten_factor, (tuple, list)):
-            shorten_factor, *rest_shorten_factor = self.shorten_factor
+            (shorten_factor, *rest_shorten_factor) = self.shorten_factor
         elif isinstance(valley_depth, int):  # TODO: bug in OG? why valley_depth?
             shorten_factor, rest_shorten_factor = self.shorten_factor, None
         else:
@@ -274,7 +288,7 @@ class HourglassTransformer(nn.Module):
                 max_seq_len=self.max_seq_len // (shorten_factor * shorten_factor),
                 resample_type=self.resample_type,
                 shorten_factor=rest_shorten_factor,
-                attn_resampling=attn_resampling,
+                attn_resampling=self.attn_resampling,
                 **transformer_kwargs
             )
 
@@ -298,10 +312,14 @@ class HourglassTransformer(nn.Module):
         )
 
         self.pre_transformer = Transformer(
-            depth=pre_layers_depth, max_seq_len=self.max_seq_len, **transformer_kwargs
+            depth=pre_layers_depth, 
+            max_seq_len=self.max_seq_len, 
+            **transformer_kwargs
         )
         self.post_transformer = Transformer(
-            depth=post_layers_depth, max_seq_len=self.max_seq_len, **transformer_kwargs
+            depth=post_layers_depth, 
+            max_seq_len=self.max_seq_len, 
+            **transformer_kwargs
         )
 
     def __call__(self, x: ArrayLike, mask: Optional[ArrayLike] = None):
