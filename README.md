@@ -5,6 +5,7 @@
 - [Alex McKinney](https://github.com/vvvm23)
 - [Khalid Saifullah](https://github.com/khalidsaifullaah)
 - [Christopher Galliart](https://github.com/HatmanStack)
+- [Louis Wendler](https://github.com/1ucky40nc3)
 
 ## Repo Map
 - `sundae/` - 2D Hourglass Transformer Code 
@@ -13,6 +14,21 @@
 - `utils.py` - Even more generic utils
 
 ## Setup
+### Installation for development
+Clone the repository:
+```bash
+git clone --recurse-submodules -j8 https://github.com/vvvm23/diffusers-sprint-sundae/git
+cd diffusers-sprint-sundae
+```
+Install the requirements:
+```
+pip install -r requirements_dev.txt
+cd vqgan-jax
+pip install -e .
+cd ..
+pip install -e .
+```
+
 `TODO: setup instructions`
 `TODO: add requirements file.`
 `TODO: integration instructions`
