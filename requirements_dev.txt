@@ -3,6 +3,7 @@ alabaster @ file:///home/ktietz/src/ci/alabaster_1611921544520/work
 anaconda-client==1.11.0
 anaconda-navigator==2.3.1
 anaconda-project @ file:///opt/conda/conda-bld/anaconda-project_1660339890420/work
+antlr4-python3-runtime==4.9.3
 anyio @ file:///tmp/build/80754af9/anyio_1644463572971/work/dist
 appdirs==1.4.4
 argon2-cffi @ file:///opt/conda/conda-bld/argon2-cffi_1645000214183/work
@@ -179,6 +180,7 @@ numexpr @ file:///opt/conda/conda-bld/numexpr_1656940300424/work
 numpy==1.24.2
 numpydoc @ file:///opt/conda/conda-bld/numpydoc_1657529872251/work
 olefile @ file:///Users/ktietz/demo/mc3/conda-bld/olefile_1629805411829/work
+omegaconf==2.3.0
 openpyxl==3.0.10
 opt-einsum==3.3.0
 optax==0.1.4
@@ -292,7 +294,7 @@ spyder @ file:///opt/conda/conda-bld/spyder_1663056818299/work
 spyder-kernels @ file:///opt/conda/conda-bld/spyder-kernels_1662457880976/work
 SQLAlchemy @ file:///tmp/abs_18b3238f-9c23-4182-a392-63af30a93c1er8j_yw60/croots/recipe/sqlalchemy_1657867856580/work
 statsmodels @ file:///tmp/build/80754af9/statsmodels_1648015433305/work
--e git+https://github.com/vvvm23/diffusers-sprint-sundae.git@166ff591ce0146eacb3731c514eda39dc1639a71#egg=sundae
+-e git+https://github.com/vvvm23/diffusers-sprint-sundae.git@797a6ceba8fb5a3e22374613f91a386300210900#egg=sundae
 sympy @ file:///tmp/build/80754af9/sympy_1647853653589/work
 tables @ file:///tmp/build/80754af9/pytables_1607975397488/work
 tabulate @ file:///opt/conda/conda-bld/tabulate_1657784105888/work
