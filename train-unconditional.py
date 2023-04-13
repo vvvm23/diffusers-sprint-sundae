@@ -31,7 +31,7 @@ from utils import dict_to_namespace
 # Hatman: added imports for wandb, argparse, and bunch
 import wandb
 import argparse
-import Bunch
+from bunch import Bunch
 
 
 # TODO: expand for whatever datasets we will use
@@ -73,6 +73,7 @@ def create_train_state(key, config: dict):
 
 def main(config, args):
     print("Config:", config)
+    print("Args:", args)
 
     print("JAX devices:", jax.devices())
 
@@ -99,7 +100,7 @@ def main(config, args):
     train_step = build_train_step(config, vqgan)
 
     # TODO: wandb logging plz: Hatman
-    wandb.init(project="diffusers-sprint-sundae", config=config)
+    # wandb.init(project="diffusers-sprint-sundae", config=config)
 
     for ei in range(config.training.epochs):
         total_loss = 0.0
@@ -115,13 +116,22 @@ def main(config, args):
                 f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
             # TODO: wandb logging plz: Hatman
-            wandb.log({"loss": total_loss / (i+1), "accuracy": total_accuracy / (i+1)})
+            # TODO: we should log the raw value of loss/acc for wandb, not scaled by (i+1) 
+            # TODO: or really, we should log every N and avg over that
+            # wandb.log({"loss": total_loss / (i+1), "accuracy": total_accuracy / (i+1)})
+            break
 
         checkpoints.save_checkpoint(ckpt_dir=save_name, target=state, step=ei)
 
 
 if __name__ == "__main__":
     # TODO: add proper argparsing!: Hatman
+    # TODO: this sadly breaks some hierarchical config arguments :/ really we
+    # need something like a yaml config loader or whatever format. Or use
+    # SimpleParsing and we can have config files with arg overrides which are
+    # also hierarchical
+    
+    """
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-s", "--seed", type=int, default=42)
     parser.add_argument("-n", "--name", type=str, default="ffhq256")
@@ -146,7 +156,7 @@ if __name__ == "__main__":
     parser.add_argument("-vqdt", "--vqgan_dtype", type=str, default="bfloat16")
     parser.add_argument("-jit", "--jit_enabled", type=bool, default=True)
     config = parser.parse_args()
-    '''
+    """
     config = dict(
         data=dict(
             name="ffhq256",
@@ -175,11 +185,10 @@ if __name__ == "__main__":
         vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
         jit_enabled=True,
     )
-    '''
 
     # Hatman: To eliminate dict_to_namespace
     args = Bunch(dict(seed=0xFFFF))
+    # args = dict_to_namespace()
 
-    #config, args = dict_to_namespace(config), dict_to_namespace(args)
 
-    main(config, args)
+    main(dict_to_namespace(config), args)
