@@ -17,15 +17,12 @@
 ### Installation for development
 Clone the repository:
 ```bash
-git clone --recurse-submodules -j8 https://github.com/vvvm23/diffusers-sprint-sundae/git
+git clone https://github.com/vvvm23/diffusers-sprint-sundae/git
 cd diffusers-sprint-sundae
 ```
 Install the requirements:
 ```
 pip install -r requirements_dev.txt
-cd vqgan-jax
-pip install -e .
-cd ..
 pip install -e .
 ```
 

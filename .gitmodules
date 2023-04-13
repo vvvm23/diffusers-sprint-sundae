@@ -1,3 +1,0 @@
-[submodule "vqgan-jax"]
-	path = vqgan-jax
-	url = https://github.com/patil-suraj/vqgan-jax

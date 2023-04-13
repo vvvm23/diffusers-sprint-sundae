@@ -292,7 +292,7 @@ spyder @ file:///opt/conda/conda-bld/spyder_1663056818299/work
 spyder-kernels @ file:///opt/conda/conda-bld/spyder-kernels_1662457880976/work
 SQLAlchemy @ file:///tmp/abs_18b3238f-9c23-4182-a392-63af30a93c1er8j_yw60/croots/recipe/sqlalchemy_1657867856580/work
 statsmodels @ file:///tmp/build/80754af9/statsmodels_1648015433305/work
--e git+https://github.com/vvvm23/diffusers-sprint-sundae.git@89d017d5f4772695add7f1ff5a6672d334fa6067#egg=sundae
+-e git+https://github.com/vvvm23/diffusers-sprint-sundae.git@166ff591ce0146eacb3731c514eda39dc1639a71#egg=sundae
 sympy @ file:///tmp/build/80754af9/sympy_1647853653589/work
 tables @ file:///tmp/build/80754af9/pytables_1607975397488/work
 tabulate @ file:///opt/conda/conda-bld/tabulate_1657784105888/work
@@ -327,7 +327,7 @@ typing_extensions @ file:///tmp/abs_ben9emwtky/croots/recipe/typing_extensions_1
 ujson @ file:///opt/conda/conda-bld/ujson_1657544923770/work
 Unidecode @ file:///tmp/build/80754af9/unidecode_1614712377438/work
 urllib3 @ file:///tmp/abs_5dhwnz6atv/croots/recipe/urllib3_1659110457909/work
--e git+https://github.com/patil-suraj/vqgan-jax@10ef240f8ace869e437f3c32d14898f61512db12#egg=vqgan_jax&subdirectory=../../vqgan-jax
+vqgan-jax @ git+https://github.com/vvvm23/vqgan-ldm-jax@c8badbc65d276f0367e237b31d8c5c69a1ca2a75
 w3lib @ file:///Users/ktietz/demo/mc3/conda-bld/w3lib_1629359764703/work
 wandb==0.14.2
 watchdog @ file:///tmp/build/80754af9/watchdog_1638367282716/work
