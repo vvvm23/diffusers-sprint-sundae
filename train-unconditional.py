@@ -96,7 +96,6 @@ def main(config, args):
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
     print(f"Saving checkpoints to directory {save_name}")
-
     train_step = build_train_step(config, vqgan)
 
     # TODO: wandb logging plz: Hatman
@@ -121,7 +120,7 @@ def main(config, args):
             # TODO: or really, we should log every N and avg over that
             # wandb.log({"loss": total_loss / (i+1), "accuracy": total_accuracy / (i+1)})
 
-        checkpoints.save_checkpoint(ckpt_dir=save_name, target=state, step=ei)
+        checkpoints.save_checkpoint(ckpt_dir=save_name, target=state, step=ei, keep=5) # TODO: param this
 
 
 if __name__ == "__main__":
@@ -160,7 +159,7 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=48,  # TODO: really this shouldn't be under data
+            batch_size=48,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(

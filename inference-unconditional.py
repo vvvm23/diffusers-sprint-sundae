@@ -106,8 +106,8 @@ def main(config, args):
     decoded_samples = vqgan.decode_code(sample)
 
     print(f"Saving to {sample_dir.as_posix()}")
-    for img in decoded_samples:
-        custom_to_pil(np.asarray(img)).save(sample_dir / "sample-0.png")
+    for i, img in enumerate(decoded_samples):
+        custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i}.png")
 
 
 if __name__ == "__main__":
