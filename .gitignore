@@ -131,3 +131,5 @@ dmypy.json
 # ---- ADDITIONS START HERE ----
 data/
 vqgan-ckpt/
+venv/
+sundae-checkpoints_*/
