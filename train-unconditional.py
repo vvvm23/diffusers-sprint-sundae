@@ -28,6 +28,11 @@ from sundae import SundaeModel
 from train_utils import build_train_step
 from utils import dict_to_namespace
 
+# Hatman: added imports for wandb, argparse, and bunch
+import wandb
+import argparse
+import Bunch
+
 
 # TODO: expand for whatever datasets we will use
 # TODO: auto train-valid split
@@ -93,7 +98,9 @@ def main(config, args):
 
     train_step = build_train_step(config, vqgan)
 
-    # TODO: wandb logging plz
+    # TODO: wandb logging plz: Hatman
+    wandb.init(project="diffusers-sprint-sundae", config=config)
+
     for ei in range(config.training.epochs):
         total_loss = 0.0
         total_accuracy = 0.0
@@ -107,12 +114,39 @@ def main(config, args):
             pb.set_description(
                 f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
+            # TODO: wandb logging plz: Hatman
+            wandb.log({"loss": total_loss / (i+1), "accuracy": total_accuracy / (i+1)})
 
         checkpoints.save_checkpoint(ckpt_dir=save_name, target=state, step=ei)
 
 
 if __name__ == "__main__":
-    # TODO: add proper argparsing!
+    # TODO: add proper argparsing!: Hatman
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("-s", "--seed", type=int, default=42)
+    parser.add_argument("-n", "--name", type=str, default="ffhq256")
+    parser.add_argument("-b", "--batch_size", type=int, default=48)
+    parser.add_argument("-w", "--num_workers", type=int, default=4)
+    parser.add_argument("-t", "--num_tokens", type=int, default=16384)
+    parser.add_argument("--dim", type=int, default=1024)
+    parser.add_argument("-d", "--depth", type=int, default=[2, 10, 2])
+    parser.add_argument("-sf", "--shorten_factor", type=int, default=4)
+    parser.add_argument("-rt", "--resample_type", type=str, default="linear")
+    parser.add_argument("-h", "--heads", type=int, default=8)
+    parser.add_argument("-dh", "--dim_head", type=int, default=64)
+    parser.add_argument("-red", "--rotary_emb_dim", type=int, default=32)
+    parser.add_argument("-msl", "--max_seq_len", type=int, default=16)
+    parser.add_argument("-pb", "--parallel_block", type=bool, default=True)
+    parser.add_argument("-te", "--tied_embedding", type=bool, default=False)
+    parser.add_argument("-dt", "--dtype", type=str, default="bfloat16")
+    parser.add_argument("-lr", "--learning_rate", type=float, default=4e-4)
+    parser.add_argument("-us", "--unroll_steps", type=int, default=2)
+    parser.add_argument("-e", "--epochs", type=int, default=100)
+    parser.add_argument("-vq", "--vqgan_name", type=str, default="vq-f16")
+    parser.add_argument("-vqdt", "--vqgan_dtype", type=str, default="bfloat16")
+    parser.add_argument("-jit", "--jit_enabled", type=bool, default=True)
+    config = parser.parse_args()
+    '''
     config = dict(
         data=dict(
             name="ffhq256",
@@ -141,9 +175,11 @@ if __name__ == "__main__":
         vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
         jit_enabled=True,
     )
+    '''
 
-    args = dict(seed=0xFFFF)
+    # Hatman: To eliminate dict_to_namespace
+    args = Bunch(dict(seed=0xFFFF))
 
-    config, args = dict_to_namespace(config), dict_to_namespace(args)
+    #config, args = dict_to_namespace(config), dict_to_namespace(args)
 
     main(config, args)
