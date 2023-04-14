@@ -4,7 +4,8 @@ from jax.typing import ArrayLike
 
 import flax
 import flax.linen as nn
-from flax.training import train_state, checkpoints
+from flax.training import train_state, checkpoints, orbax_utils
+import orbax.checkpoint
 
 import optax
 import einops
@@ -106,6 +107,11 @@ def main(config, args):
     # TODO: wandb logging plz: Hatman
     # TODO: need flag to toggle on and off otherwise we will pollute project
     # wandb.init(project="diffusers-sprint-sundae", config=config)
+    
+    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=5, create=True)
+    checkpoint_manager = orbax.checkpoint.CheckpointManager(save_name, orbax_checkpointer, checkpoint_opts)
+    save_args = orbax_utils.save_args_from_target(state)
 
     for ei in range(config.training.epochs):
         total_loss = 0.0
@@ -128,7 +134,8 @@ def main(config, args):
             # TODO: or really, we should log every N and avg over that
             # wandb.log({"loss": total_loss / (i+1), "accuracy": total_accuracy / (i+1)})
 
-        checkpoints.save_checkpoint(ckpt_dir=save_name, target=state, step=ei, keep=5) # TODO: param this
+        # checkpoints.save_checkpoint(ckpt_dir=save_name, target=state, step=ei, keep=5) # TODO: param this
+        checkpoint_manager.save(ei, state, save_kwargs={'save_args': save_args})
 
 
 if __name__ == "__main__":
@@ -167,7 +174,7 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=48,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=64,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(
@@ -185,7 +192,7 @@ if __name__ == "__main__":
             dtype=jnp.bfloat16,
         ),
         training=dict(
-            learning_rate=1e-4,
+            learning_rate=3e-5,
             unroll_steps=2,
             epochs=100,  # TODO: maybe replace with train steps
         ),
