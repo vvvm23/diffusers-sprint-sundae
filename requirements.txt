@@ -9,4 +9,4 @@ transformers
 omegaconf
 pytorch-lightning
 
-git+ssh://git@github.com:vvvm23/vqgan-ldm-jax.git
+git+ssh://git@github.com/vvvm23/vqgan-ldm-jax.git
