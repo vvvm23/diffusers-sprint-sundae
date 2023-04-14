@@ -133,3 +133,4 @@ data/
 vqgan-ckpt/
 venv/
 sundae-checkpoints_*/
+samples/
