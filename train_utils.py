@@ -32,7 +32,7 @@ def build_train_step(config: dict, vqgan: nn.Module):
             total_accuracy = 0.0
             key, subkey = jax.random.split(key)
             samples = corrupt_batch(batch, subkey, config.model.num_tokens)
-            for i in range(config.training.unroll_steps):
+            for i in range(config.training.unroll_steps): # TODO: replace with real jax loop, otherwise compile time scales with num iters.
                 samples = jax.lax.stop_gradient(samples)
                 key, subkey = jax.random.split(key)
                 logits = model.apply({"params": params}, samples)
@@ -52,6 +52,7 @@ def build_train_step(config: dict, vqgan: nn.Module):
         (loss, accuracy), grads = jax.value_and_grad(loss_fn, has_aux=True)(
             state.params, key
         )
+        grads = jax.lax.pmean(grads, 'replication_axis')
         state = state.apply_gradients(grads=grads)
 
         return state, loss, accuracy

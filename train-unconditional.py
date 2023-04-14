@@ -7,6 +7,7 @@ import flax.linen as nn
 from flax.training import train_state, checkpoints
 
 import optax
+import einops
 
 from typing import Callable, Optional, Sequence, Union, Literal
 
@@ -66,6 +67,7 @@ def create_train_state(key, config: dict):
         ),
     )["params"]
     params = jax.tree_map(lambda p: jnp.asarray(p, dtype=config.model.dtype), params)
+    # params = flax.jax_utils.replicate(params)
     opt = optax.adamw(config.training.learning_rate)
 
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=opt)
@@ -75,7 +77,9 @@ def main(config, args):
     print("Config:", config)
     print("Args:", args)
 
-    print("JAX devices:", jax.devices())
+    devices = jax.devices()
+    print("JAX devices:", devices)
+    replication_factor = len(devices)
 
     key = jax.random.PRNGKey(args.seed)
     print("Random seed:", args.seed)
@@ -92,6 +96,7 @@ def main(config, args):
 
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config)
+    state = flax.jax_utils.replicate(state)
 
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
@@ -107,11 +112,14 @@ def main(config, args):
         total_accuracy = 0.0
         pb = tqdm.tqdm(loader)
         for i, (batch, _) in enumerate(pb):
-            batch = batch.numpy()
+            # TODO: do i not need below?
+            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor)
+            # key, *subkeys = jax.random.split(key, num = replication_factor + 1)
             key, subkey = jax.random.split(key)
-            state, loss, accuracy = train_step(state, batch, subkey)
-            total_loss += loss
-            total_accuracy += accuracy
+            state, loss, accuracy = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, None))(state, batch, subkey) # TODO: add donate args, memory save on params
+            total_loss += loss.mean()
+            total_accuracy += accuracy.mean()
+
             pb.set_description(
                 f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
