@@ -10,6 +10,8 @@ pytorch-lightning
 wandb
 bunch
 
+tensorflow
+
 git+ssh://git@github.com/vvvm23/vqgan-ldm-jax.git
 
 --extra-index-url https://download.pytorch.org/whl/cpu
