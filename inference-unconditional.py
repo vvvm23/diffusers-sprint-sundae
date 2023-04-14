@@ -59,12 +59,9 @@ def main(config, args):
     sample_dir = setup_sample_dir()
 
     print(f"Restoring model from {args.checkpoint}")
-    state_restored = checkpoints.restore_checkpoint(
+    params = checkpoints.restore_checkpoint(
         ckpt_dir=args.checkpoint, target=None, step=args.checkpoint_step
-    )
-    print(state_restored)
-    params = state_restored.params
-    del state_restored
+    )['params']
 
     model = SundaeModel(config.model)
 
@@ -93,7 +90,9 @@ def main(config, args):
         mask = jax.random.uniform(subkey, new_sample.shape) > args.sample_proportion
 
         # where True (aka, where to fix) copy from original sample
-        new_sample[mask] = sample[mask]
+        # new_sample[mask] = sample[mask]
+        # new_sample = new_sample.at[mask].set(sample.at[mask]) # <~~ no bueno!
+        new_sample = mask * sample + ~mask * new_sample # JIT-compile must have static shape, hence this monstrosity
 
         if jnp.all(new_sample == sample):
             print(f"No change during sampling step {i}. Terminating.")
@@ -122,8 +121,8 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0xFFFF)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--sample-steps", type=int, default=100)
-    parser.add_argument("--sample-temperature", type=float, default=0.7)
-    parser.add_argument("--sample-proportion", type=float, default=0.5)
+    parser.add_argument("--sample-temperature", type=float, default=0.6)
+    parser.add_argument("--sample-proportion", type=float, default=0.3)
     args = parser.parse_args()
 
     config = dict(
