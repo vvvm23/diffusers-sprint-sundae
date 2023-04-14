@@ -13,6 +13,10 @@
 - `utils.py` - Even more generic utils
 
 ## Setup
+create venv! just a regular python one is good
+install jax as per [here](https://github.com/huggingface/community-events/tree/main/jax-controlnet-sprint#installing-jax) but use `0.4.6` instead
+then install requirements file
+
 `TODO: setup instructions`
 `TODO: add requirements file.`
 `TODO: integration instructions`

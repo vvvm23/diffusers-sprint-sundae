@@ -134,8 +134,9 @@ def main(config, args):
             # TODO: or really, we should log every N and avg over that
             # wandb.log({"loss": total_loss / (i+1), "accuracy": total_accuracy / (i+1)})
 
+        # TODO: both checkpointing methods break with the same error
         # checkpoints.save_checkpoint(ckpt_dir=save_name, target=state, step=ei, keep=5) # TODO: param this
-        checkpoint_manager.save(ei, state, save_kwargs={'save_args': save_args})
+        checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
 
 
 if __name__ == "__main__":

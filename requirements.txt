@@ -11,6 +11,7 @@ wandb
 bunch
 
 tensorflow
+orbax
 
 git+ssh://git@github.com/vvvm23/vqgan-ldm-jax.git
 
