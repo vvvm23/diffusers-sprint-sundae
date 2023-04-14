@@ -1,12 +1,17 @@
 flax==0.6.7
 optax
 einops
-torch
-torchvision
 tqdm
 
 transformers
 omegaconf
 pytorch-lightning
 
-git+ssh://git@github.com:vvvm23/vqgan-ldm-jax.git
+wandb
+bunch
+
+git+ssh://git@github.com/vvvm23/vqgan-ldm-jax.git
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
