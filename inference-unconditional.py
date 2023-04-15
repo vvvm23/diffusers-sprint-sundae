@@ -129,20 +129,20 @@ if __name__ == "__main__":
 
     config = dict(
         model=dict(
-            num_tokens=16_384,
+            num_tokens=256,
             dim=1024,
-            depth=[2, 10, 2],
+            depth=[2, 12, 2],
             shorten_factor=4,
             resample_type="linear",
             heads=8,
             dim_head=64,
-            rotary_emb_dim=None,
-            max_seq_len=16, # effectively squared to 256
+            rotary_emb_dim=32,
+            max_seq_len=32, # effectively squared to 256
             parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
-        vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
+        vqgan=dict(name="vq-f8-n256", dtype=jnp.bfloat16),
         jit_enabled=True,
     )
 

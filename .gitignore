@@ -134,3 +134,5 @@ vqgan-ckpt/
 venv/
 sundae-checkpoints_*/
 samples/
+*.png
+*.swp

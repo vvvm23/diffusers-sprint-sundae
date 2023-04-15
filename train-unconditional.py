@@ -104,16 +104,18 @@ def main(config, args):
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
     print(f"Saving checkpoints to directory {save_name}")
-    train_step = build_train_step(config, vqgan)
+    train_step = build_train_step(config, vqgan=vqgan)
 
     # TODO: wandb logging plz: Hatman
     # TODO: need flag to toggle on and off otherwise we will pollute project
     # wandb.init(project="diffusers-sprint-sundae", config=config)
     
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, create=True, keep_period=2)
+    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(keep_period=10, max_to_keep=2, create=True)
     checkpoint_manager = orbax.checkpoint.CheckpointManager(save_name, orbax_checkpointer, checkpoint_opts)
     save_args = orbax_utils.save_args_from_target(state)
+
+    pmap_train_step = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, 0))
 
     log_interval = 64
     for ei in range(config.training.epochs):
@@ -126,7 +128,7 @@ def main(config, args):
             batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, 0))(state, batch, subkeys) # TODO: add donate args, memory save on params
+            state, loss, accuracy = pmap_train_step(state, batch, subkeys) # TODO: add donate args, memory save on params
 
             loss, accuracy = loss.mean(), accuracy.mean()
             total_loss += loss
@@ -183,27 +185,27 @@ if __name__ == "__main__":
         data=dict(
             name="ffhq256",
             batch_size=128,  # TODO: really this shouldn't be under data, it affects the numerics of the model
-            num_workers=4,
+            num_workers=8,
         ),
         model=dict(
             num_tokens=256,
             dim=1024,
-            depth=[2, 12, 2],
+            depth=[2, 14, 2],
             shorten_factor=4,
             resample_type="linear",
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
             max_seq_len=32, # effectively squared to 256
-            parallel_block=False,
-            tied_embedding=False,
+            parallel_block=True,
+            tied_embedding=True,
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
             learning_rate = 4e-4,
-            unroll_steps=2,
+            unroll_steps=3,
             epochs=100,  # TODO: maybe replace with train steps
-            max_grad_norm=1.0,
+            max_grad_norm=2.0,
             weight_decay=1e-2
         ),
         vqgan=dict(name="vq-f8-n256", dtype=jnp.float32),

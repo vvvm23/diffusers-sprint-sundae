@@ -110,7 +110,7 @@ def main(config, args):
     # wandb.init(project="diffusers-sprint-sundae", config=config)
     
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, create=True, keep_period=2)
+    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(keep_period=10, max_to_keep=2, create=True)
     checkpoint_manager = orbax.checkpoint.CheckpointManager(save_name, orbax_checkpointer, checkpoint_opts)
     save_args = orbax_utils.save_args_from_target(state)
 
