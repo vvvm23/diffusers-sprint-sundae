@@ -184,7 +184,7 @@ class Transformer(nn.Module):
                 PreNormResidual(Attention(self.heads, self.dim_head)),
                 PreNormResidual(FeedForward(self.ff_mult)),
             )
-            for i in range(self.depth)
+            for _ in range(self.depth)
         ]
 
         # TODO: seems to break if we cache here
@@ -283,7 +283,7 @@ class HourglassTransformer(nn.Module):
                 max_seq_len=self.max_seq_len // shorten_factor,
                 resample_type=self.resample_type,
                 shorten_factor=rest_shorten_factor,
-                attn_resampling=attn_resampling,
+                attn_resampling=self.attn_resampling,
                 **transformer_kwargs
             )
 
