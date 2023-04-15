@@ -56,5 +56,6 @@ def get_config() -> mlc.ConfigDict:
     config.report_to = [
         "tensorboard"
     ]
+    config.do_train = False
 
     return config
