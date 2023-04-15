@@ -6,19 +6,20 @@ import jax.numpy as jnp
 def get_config() -> mlc.ConfigDict:
     config = mlc.ConfigDict()
 
+    config.do_train = False
+    config.batch_size = 48
     config.seed = 0
 
     config.data = dict(
         name="ffhq256",
-        batch_size=48,  # TODO: really this shouldn't be under data, it affects the numerics of the model
         num_workers=4,
-        image_size=64,
-        train_dir=None,
-        validation_dir=None
+        image_size=224,
+        train_dir="",
+        validation_dir=""
     )
     config.model = dict(
-        model_name_or_path=None,
-        
+        model_name_or_path="",
+        config_name="",
         num_tokens=16_384,
         dim=1024,
         depth=[2, 12, 2],
@@ -30,7 +31,7 @@ def get_config() -> mlc.ConfigDict:
         max_seq_len=16, # effectively squared to 256
         parallel_block=True,
         tied_embedding=False,
-        dtype=jnp.bfloat16,
+        dtype="float16",
         cache_dir=None,
         use_auth_token=None,
     )
@@ -56,6 +57,5 @@ def get_config() -> mlc.ConfigDict:
     config.report_to = [
         "tensorboard"
     ]
-    config.do_train = False
-
+    
     return config
