@@ -201,12 +201,14 @@ class Transformer(nn.Module):
         mask: Optional[ArrayLike] = None,
     ):
         # TODO: replace with caching
-        freqs = generate_embeddings(
-            jnp.linspace(-1.0, 1.0, num=self.max_seq_len),
-            self.rotary_emb_dim,
-            max_freq=self.max_seq_len,
-        )
-        rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
+        rot_emb = None
+        if self.rotary_emb_dim:
+            freqs = generate_embeddings(
+                jnp.linspace(-1.0, 1.0, num=self.max_seq_len),
+                self.rotary_emb_dim,
+                max_freq=self.max_seq_len,
+            )
+            rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
 
         for attn, ff in self.layers:
             if self.parallel_block:  # gpt-j style arrangement
