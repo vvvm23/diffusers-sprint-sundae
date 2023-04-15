@@ -67,7 +67,7 @@ def create_train_state(key, config: dict):
             [1, config.model.max_seq_len * config.model.max_seq_len], dtype=jnp.int32
         ),
     )["params"]
-    params = jax.tree_map(lambda p: jnp.asarray(p, dtype=config.model.dtype), params)
+    # params = jax.tree_map(lambda p: jnp.asarray(p, dtype=config.model.dtype), params)
     opt = optax.adamw(config.training.learning_rate)
 
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=opt)
@@ -178,26 +178,26 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=128,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=32,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(
             num_tokens=16_384,
             dim=1024,
-            depth=[2, 8, 2],
+            depth=[2, 10, 2],
             shorten_factor=4,
             resample_type="linear",
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
             max_seq_len=16, # effectively squared to 256
-            parallel_block=True,
+            parallel_block=False,
             tied_embedding=False,
-            dtype=jnp.bfloat16,
+            dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
             learning_rate = 1e-4,
-            unroll_steps=3,
+            unroll_steps=2,
             epochs=100,  # TODO: maybe replace with train steps
         ),
         vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),

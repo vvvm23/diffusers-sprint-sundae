@@ -16,12 +16,15 @@ def exists(val):
     return val is not None
 
 def Dense(dim, *args, **kwargs):
-    layer = nn.Dense(dim, *args, **kwargs, 
+    layer = nn.Dense(dim, *args, **kwargs, dtype=jnp.bfloat16, param_dtype=jnp.bfloat16, 
         kernel_init=nn.initializers.he_uniform(),
         bias_init=nn.initializers.uniform(1 / sqrt(dim)) # lecun_uniform 
     )
     return layer
 
+def LayerNorm(*args, **kwargs):
+    layer = nn.LayerNorm(*args, **kwargs, dtype=jnp.float32, param_dtype=jnp.float32)
+    return layer
 
 # resample functions
 class NaiveDownsample(nn.Module):
@@ -94,7 +97,7 @@ class PreNormResidual(nn.Module):
 
     @nn.compact
     def __call__(self, x: ArrayLike, **kwargs):
-        return self.fn(nn.LayerNorm()(x), **kwargs) + x
+        return self.fn(LayerNorm()(x), **kwargs) + x
 
 
 # standard transformer ff block
@@ -189,7 +192,7 @@ class Transformer(nn.Module):
         # freqs = generate_embeddings(jnp.linspace(-1.0, 1.0, num=self.max_seq_len), self.rotary_emb_dim, max_freq=self.max_seq_len)
         # self.rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
 
-        self.norm = nn.LayerNorm()
+        self.norm = LayerNorm()
 
     def __call__(
         self,
@@ -237,7 +240,7 @@ class HourglassTransformer(nn.Module):
 
         if isinstance(self.shorten_factor, (tuple, list)):
             shorten_factor, *rest_shorten_factor = self.shorten_factor
-        elif isinstance(valley_depth, int):  # TODO: bug in OG? why valley_depth?
+        elif isinstance(valley_depth, int): 
             shorten_factor, rest_shorten_factor = self.shorten_factor, None
         else:
             shorten_factor, rest_shorten_factor = (
@@ -377,12 +380,12 @@ class HourglassTransformerLM(nn.Module):
     def __call__(self, x: ArrayLike, mask: Optional[ArrayLike] = None):
         dtype = jnp.float32
         token_embedding = nn.Embed(
-            self.num_tokens, self.dim, dtype=dtype, param_dtype=dtype, embedding_init=nn.initializers.normal(stddev=1.0)
+            self.num_tokens, self.dim, dtype=dtype, embedding_init=nn.initializers.normal(stddev=1.0)
         )
         x = token_embedding(x)
         if self.rotary_emb_dim is None:
             pos_emb = nn.Embed(
-                self.max_seq_len*self.max_seq_len, self.dim, dtype=dtype, param_dtype=dtype
+                self.max_seq_len*self.max_seq_len, self.dim, dtype=dtype
             )(jnp.arange(x.shape[1]))
             x = x + einops.rearrange(pos_emb, "n d -> () n d")
 
@@ -401,7 +404,9 @@ class HourglassTransformerLM(nn.Module):
         if self.tied_embedding:
             return token_embedding.attend(x)
 
-        return Dense(self.num_tokens)(x)
+        return nn.Dense(self.num_tokens, dtype=jnp.float32,
+            kernel_init=nn.initializers.he_uniform(),
+            bias_init=nn.initializers.uniform(1 / sqrt(self.num_tokens)))(x) 
 
 
 class SundaeModel(nn.Module):
