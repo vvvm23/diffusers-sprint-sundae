@@ -37,10 +37,6 @@ def build_train_step(config: dict, vqgan: nn.Module):
                 logits = model.apply({"params": params}, samples)
                 all_logits.append(logits)
 
-                # total_accuracy = (
-                    # total_accuracy + (logits.argmax(axis=-1) == batch).mean()
-                # )
-
                 if i != config.training.unroll_steps - 1:
                     samples = jax.random.categorical(subkey, logits, axis=-1)
 

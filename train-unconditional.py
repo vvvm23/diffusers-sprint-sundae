@@ -68,7 +68,10 @@ def create_train_state(key, config: dict):
         ),
     )["params"]
     # params = jax.tree_map(lambda p: jnp.asarray(p, dtype=config.model.dtype), params)
-    opt = optax.adamw(config.training.learning_rate)
+    opt = optax.chain(
+        optax.clip_by_global_norm(config.training.max_grad_norm),
+        optax.adamw(config.training.learning_rate, weight_decay=config.training.weight_decay)
+    ) 
 
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
@@ -122,7 +125,8 @@ def main(config, args):
         for i, (batch, _) in enumerate(pb):
             batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor)
             key, subkey = jax.random.split(key)
-            state, loss, accuracy = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, None))(state, batch, subkey) # TODO: add donate args, memory save on params
+            subkeys = jax.random.split(subkey, replication_factor)
+            state, loss, accuracy = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, 0))(state, batch, subkeys) # TODO: add donate args, memory save on params
 
             loss, accuracy = loss.mean(), accuracy.mean()
             total_loss += loss
@@ -184,28 +188,30 @@ if __name__ == "__main__":
         model=dict(
             num_tokens=16_384,
             dim=1024,
-            depth=[2, 10, 2],
+            depth=[2, 12, 2],
             shorten_factor=4,
-            resample_type="linear",
+            resample_type="naive",
             heads=8,
             dim_head=64,
-            rotary_emb_dim=None,
+            rotary_emb_dim=32,
             max_seq_len=16, # effectively squared to 256
             parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
-            learning_rate = 1e-4,
+            learning_rate = 3e-3,
             unroll_steps=2,
             epochs=100,  # TODO: maybe replace with train steps
+            max_grad_norm=1.0,
+            weight_decay=1e-2
         ),
         vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
         jit_enabled=True,
     )
 
     # Hatman: To eliminate dict_to_namespace
-    args = Bunch(dict(seed=0xFFFF))
+    args = Bunch(dict(seed=42)) # if you are changing the seed to get good results, may god help you.
     # args = dict_to_namespace()
 
     main(dict_to_namespace(config), args)
