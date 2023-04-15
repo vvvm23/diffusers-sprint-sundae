@@ -67,7 +67,7 @@ class LinearDownsample(nn.Module):
             sh=self.shorten_factor,
             sw=self.shorten_factor,
         )
-        x = Dense(dim, dtype=jnp.float32)(x)
+        x = Dense(dim)(x)
         return einops.rearrange(x, "b h w d -> b (h w) d")
 
 
@@ -78,7 +78,7 @@ class LinearUpsample(nn.Module):
     def __call__(self, x: ArrayLike):
         dim = x.shape[-1] * self.shorten_factor * self.shorten_factor
         x = einops.rearrange(x, "b (h w) d -> b h w d", h=int(sqrt(x.shape[1])))
-        x = Dense(dim, dtype=jnp.float32)(x)
+        x = Dense(dim)(x)
         x = einops.rearrange(
             x,
             "b h w (d sh sw) -> b (h sh) (w sw) d",
@@ -106,9 +106,9 @@ class FeedForward(nn.Module):
         dim = x.shape[-1]
         return nn.Sequential(
             [
-                Dense(dim * self.mult, dtype=jnp.float32),
+                Dense(dim * self.mult),
                 nn.gelu,
-                Dense(dim, dtype=jnp.float32),
+                Dense(dim),
             ]
         )(x)
 
@@ -131,8 +131,8 @@ class Attention(nn.Module):
         dim = h * self.dim_head
         scale = self.dim_head**-0.5
 
-        q = Dense(dim, use_bias=False, dtype=jnp.float32)(x)
-        kv = Dense(2 * dim, use_bias=False, dtype=jnp.float32)(
+        q = Dense(dim, use_bias=False)(x)
+        kv = Dense(2 * dim, use_bias=False)(
             context if has_context else x
         )
         k, v = jnp.split(kv, 2, axis=-1)
@@ -160,9 +160,9 @@ class Attention(nn.Module):
         attn = nn.softmax(sim, axis=-1)
         out = jnp.einsum("b h i j, b h j d -> b h i d", attn, v)
         out = einops.rearrange(out, "b h n d -> b n (h d)", h=h)
-        out = Dense(x.shape[-1], use_bias=True, dtype=jnp.float32)(out)
+        out = Dense(x.shape[-1], use_bias=True)(out)
 
-        out = nn.LayerNorm()(out)
+        # out = nn.LayerNorm()(out)
 
         return out
 

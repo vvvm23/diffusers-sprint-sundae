@@ -175,7 +175,7 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=4,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=64,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(
@@ -188,16 +188,16 @@ if __name__ == "__main__":
             dim_head=64,
             rotary_emb_dim=32,
             max_seq_len=16, # effectively squared to 256
-            parallel_block=True,
+            parallel_block=False,
             tied_embedding=False,
-            dtype=jnp.bfloat16,
+            dtype=jnp.float32,
         ),
         training=dict(
             learning_rate=2e-4,
             unroll_steps=2,
             epochs=100,  # TODO: maybe replace with train steps
         ),
-        vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
+        vqgan=dict(name="vq-f16", dtype=jnp.float32),
         jit_enabled=True,
     )
 
