@@ -68,7 +68,6 @@ def create_train_state(key, config: dict):
         ),
     )["params"]
     params = jax.tree_map(lambda p: jnp.asarray(p, dtype=config.model.dtype), params)
-    # params = flax.jax_utils.replicate(params)
     opt = optax.adamw(config.training.learning_rate)
 
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=opt)
@@ -113,34 +112,33 @@ def main(config, args):
     checkpoint_manager = orbax.checkpoint.CheckpointManager(save_name, orbax_checkpointer, checkpoint_opts)
     save_args = orbax_utils.save_args_from_target(state)
 
-    log_interval = 16
+    log_interval = 64
     for ei in range(config.training.epochs):
         total_loss = 0.0
         total_accuracy = 0.0
+
+        wandb_metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.tqdm(loader)
         for i, (batch, _) in enumerate(pb):
-            # TODO: do i not need below?
             batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor)
-            # key, *subkeys = jax.random.split(key, num = replication_factor + 1)
             key, subkey = jax.random.split(key)
             state, loss, accuracy = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, None))(state, batch, subkey) # TODO: add donate args, memory save on params
 
-            total_loss += loss.mean()
-            total_accuracy += accuracy.mean()
+            loss, accuracy = loss.mean(), accuracy.mean()
+            total_loss += loss
+            total_accuracy += accuracy
 
-            if i % log_interval == 0 # TODO: add this param to config
-                pb.set_description(
-                    f"[epoch {ei+1}] loss: {total_loss / log_interval:.6f}, accuracy {total_accuracy / log_interval:.2f}"
-                )
-                total_loss = 0.0
-                total_accuracy = 0.0
-            # TODO: wandb logging plz: Hatman
-            # TODO: we should log the raw value of loss/acc for wandb, not scaled by (i+1)
-            # TODO: or really, we should log every N and avg over that
-            # wandb.log({"loss": total_loss / (i+1), "accuracy": total_accuracy / (i+1)})
+            wandb_metrics['loss'] += loss
+            wandb_metrics['accuracy'] += accuracy
 
-        # TODO: both checkpointing methods break with the same error
-        # checkpoints.save_checkpoint(ckpt_dir=save_name, target=state, step=ei, keep=5) # TODO: param this
+            pb.set_description(
+                f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
+            )
+            if i % log_interval == 0:
+                wandb_metrics['loss'] /= log_interval
+                wandb_metrics['accuracy'] /= log_interval
+                #wandb.log(wandb_metrics)
+
         checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
 
 
@@ -185,24 +183,24 @@ if __name__ == "__main__":
         ),
         model=dict(
             num_tokens=16_384,
-            dim=1024,
-            depth=[3, 14, 3],
+            dim=2048,
+            depth=[2, 8, 2],
             shorten_factor=4,
             resample_type="linear",
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
             max_seq_len=16, # effectively squared to 256
-            parallel_block=False,
+            parallel_block=True,
             tied_embedding=False,
-            dtype=jnp.float32,
+            dtype=jnp.bfloat16,
         ),
         training=dict(
             learning_rate=2e-4,
-            unroll_steps=2,
+            unroll_steps=3,
             epochs=100,  # TODO: maybe replace with train steps
         ),
-        vqgan=dict(name="vq-f16", dtype=jnp.float32),
+        vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
         jit_enabled=True,
     )
 
