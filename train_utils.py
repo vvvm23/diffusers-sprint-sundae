@@ -28,26 +28,29 @@ def build_train_step(config: dict, vqgan: nn.Module):
         _, batch = vqgan(batch)  # TODO: we only need to encode!!!
 
         def loss_fn(params, key):
-            losses = []
-            total_accuracy = 0.0
+            all_logits = []
             key, subkey = jax.random.split(key)
             samples = corrupt_batch(batch, subkey, config.model.num_tokens)
             for i in range(config.training.unroll_steps): # TODO: replace with real jax loop, otherwise compile time scales with num iters.
                 samples = jax.lax.stop_gradient(samples)
                 key, subkey = jax.random.split(key)
                 logits = model.apply({"params": params}, samples)
+                all_logits.append(logits)
 
-                loss = optax.softmax_cross_entropy_with_integer_labels(logits, batch)
-                losses.append(loss)
-                total_accuracy = (
-                    total_accuracy + (logits.argmax(axis=-1) == batch).mean()
-                )
+                # total_accuracy = (
+                    # total_accuracy + (logits.argmax(axis=-1) == batch).mean()
+                # )
 
                 if i != config.training.unroll_steps - 1:
                     samples = jax.random.categorical(subkey, logits, axis=-1)
 
-            total_loss = jnp.concatenate(losses).mean()
-            return total_loss, 100.0 * total_accuracy / config.training.unroll_steps
+            # total_loss = jnp.concatenate(losses).mean()
+            logits = jnp.concatenate(all_logits)
+            repeat_batch = jnp.concatenate([batch]*config.training.unroll_steps)
+            total_loss = optax.softmax_cross_entropy_with_integer_labels(logits, repeat_batch).mean()
+            total_accuracy = (logits.argmax(axis=-1) == repeat_batch).mean()
+
+            return total_loss, 100.0 * total_accuracy
 
         (loss, accuracy), grads = jax.value_and_grad(loss_fn, has_aux=True)(
             state.params, key

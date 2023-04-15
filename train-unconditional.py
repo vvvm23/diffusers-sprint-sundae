@@ -174,7 +174,7 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=64,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=4,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(
