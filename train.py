@@ -1,11 +1,14 @@
 
 from typing import (
     Any,
+    Tuple,
     Callable,
     Optional
 )
 
+import time
 import logging
+from pathlib import Path
 
 import torch
 import torchvision
@@ -15,6 +18,19 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from flax import jax_utils
+from flax.jax_utils import (
+    pad_shard_unpad, 
+    unreplicate
+)
+from flax.training import train_state
+from flax.training.common_utils import (
+    get_metrics, 
+    onehot, 
+    shard, 
+    shard_prng_key
+)
+
 import transformers
 from transformers import (
     is_tensorboard_available,
@@ -22,6 +38,8 @@ from transformers import (
     AutoConfig,
     FlaxAutoModelForImageClassification,
 )
+
+from tqdm import tqdm
 
 
 Model = Any
@@ -31,6 +49,13 @@ TensorboardWriter = Any
 
 
 logger = logging.getLogger(__name__)
+
+
+class TrainState(train_state.TrainState):
+    dropout_rng: jnp.ndarray
+
+    def replicate(self):
+        return jax_utils.replicate(self).replace(dropout_rng=shard_prng_key(self.dropout_rng))
 
 
 def write_metric(summary_writer, train_metrics, eval_metrics, train_time, step):
@@ -181,9 +206,9 @@ def train_fn(config):
     train_dataset, eval_dataset = load_datasets(config)
     model, model_config = load_model_and_config(config, num_labels=len(train_dataset.classes))
 
-    num_epochs = int(training_args.num_train_epochs)
-    train_batch_size = int(training_args.per_device_train_batch_size) * jax.device_count()
-    per_device_eval_batch_size = int(training_args.per_device_eval_batch_size)
+    num_epochs = int(config.training.num_epochs)
+    train_batch_size = int(config.batch_size) * jax.device_count()
+    per_device_eval_batch_size = int(config.batch_size)
     eval_batch_size = per_device_eval_batch_size * jax.device_count()
     steps_per_epoch = len(train_dataset) // train_batch_size
     total_train_steps = steps_per_epoch * num_epochs
@@ -263,7 +288,7 @@ def train_fn(config):
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num Epochs = {num_epochs}")
-    logger.info(f"  Instantaneous batch size per device = {config.data.batch_size}")
+    logger.info(f"  Instantaneous batch size per device = {config.batch_size}")
     logger.info(f"  Total train batch size (w. parallel & distributed) = {train_batch_size}")
     logger.info(f"  Total optimization steps = {total_train_steps}")
 
@@ -282,6 +307,8 @@ def train_fn(config):
         # train
         for batch in train_loader:
             batch = shard(batch)
+            logger.info(f'{batch["pixel_values"].shape=}')
+            logger.info(f'{batch["labels"].shape=}')
             state, train_metric = p_train_step(state, batch)
             train_metrics.append(train_metric)
 
