@@ -113,6 +113,7 @@ def main(config, args):
     checkpoint_manager = orbax.checkpoint.CheckpointManager(save_name, orbax_checkpointer, checkpoint_opts)
     save_args = orbax_utils.save_args_from_target(state)
 
+    log_interval = 16
     for ei in range(config.training.epochs):
         total_loss = 0.0
         total_accuracy = 0.0
@@ -123,12 +124,16 @@ def main(config, args):
             # key, *subkeys = jax.random.split(key, num = replication_factor + 1)
             key, subkey = jax.random.split(key)
             state, loss, accuracy = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, None))(state, batch, subkey) # TODO: add donate args, memory save on params
+
             total_loss += loss.mean()
             total_accuracy += accuracy.mean()
 
-            pb.set_description(
-                f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
-            )
+            if i % log_interval == 0 # TODO: add this param to config
+                pb.set_description(
+                    f"[epoch {ei+1}] loss: {total_loss / log_interval:.6f}, accuracy {total_accuracy / log_interval:.2f}"
+                )
+                total_loss = 0.0
+                total_accuracy = 0.0
             # TODO: wandb logging plz: Hatman
             # TODO: we should log the raw value of loss/acc for wandb, not scaled by (i+1)
             # TODO: or really, we should log every N and avg over that
