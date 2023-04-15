@@ -12,8 +12,9 @@ from absl import (
     logging
 )
 
-from clu import platform
 
+import jax
+from clu import platform
 from ml_collections import config_flags
 
 from train import train_fn
