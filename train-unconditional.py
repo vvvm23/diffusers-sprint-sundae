@@ -108,7 +108,7 @@ def main(config, args):
     # wandb.init(project="diffusers-sprint-sundae", config=config)
     
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=5, create=True)
+    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, create=True, keep_period=2)
     checkpoint_manager = orbax.checkpoint.CheckpointManager(save_name, orbax_checkpointer, checkpoint_opts)
     save_args = orbax_utils.save_args_from_target(state)
 
@@ -178,12 +178,12 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=64,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=128,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(
             num_tokens=16_384,
-            dim=2048,
+            dim=1024,
             depth=[2, 8, 2],
             shorten_factor=4,
             resample_type="linear",
@@ -196,7 +196,7 @@ if __name__ == "__main__":
             dtype=jnp.bfloat16,
         ),
         training=dict(
-            learning_rate=2e-4,
+            learning_rate = 1e-4,
             unroll_steps=3,
             epochs=100,  # TODO: maybe replace with train steps
         ),
