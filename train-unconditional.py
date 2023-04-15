@@ -189,7 +189,7 @@ if __name__ == "__main__":
             resample_type="linear",
             heads=8,
             dim_head=64,
-            rotary_emb_dim=32,
+            rotary_emb_dim=None,
             max_seq_len=16, # effectively squared to 256
             parallel_block=False,
             tied_embedding=False,

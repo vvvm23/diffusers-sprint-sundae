@@ -5,7 +5,7 @@ from jax.typing import ArrayLike
 import flax
 import flax.linen as nn
 
-from flax.training import checkpoints
+import orbax.checkpoint
 
 from typing import Callable, Optional, Sequence, Union, Literal
 
@@ -59,9 +59,11 @@ def main(config, args):
     sample_dir = setup_sample_dir()
 
     print(f"Restoring model from {args.checkpoint}")
-    params = checkpoints.restore_checkpoint(
-        ckpt_dir=args.checkpoint, target=None, step=args.checkpoint_step
-    )['params']
+    # params = checkpoints.restore_checkpoint(
+        # ckpt_dir=args.checkpoint, target=None, step=args.checkpoint_step
+    # )['params']
+    ckptr = orbax.checkpoint.Checkpointer(orbax.checkpoint.PyTreeCheckpointHandler())
+    params = ckptr.restore(args.checkpoint, item=None)['params']
 
     model = SundaeModel(config.model)
 
@@ -117,7 +119,7 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument(
         "--checkpoint-step", type=int, default=None, help="`None` loads latest."
-    )
+    ) # TODO: remove
     parser.add_argument("--seed", type=int, default=0xFFFF)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--sample-steps", type=int, default=100)
@@ -134,11 +136,11 @@ if __name__ == "__main__":
             resample_type="linear",
             heads=8,
             dim_head=64,
-            rotary_emb_dim=32,
-            max_seq_len=16,
-            parallel_block=True,
+            rotary_emb_dim=None,
+            max_seq_len=16, # effectively squared to 256
+            parallel_block=False,
             tied_embedding=False,
-            dtype=jnp.bfloat16,
+            dtype=jnp.bfloat16, # currently no effect
         ),
         vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
         jit_enabled=True,
