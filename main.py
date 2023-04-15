@@ -16,6 +16,8 @@ from clu import platform
 
 from ml_collections import config_flags
 
+from train import train_fn
+
 
 FLAGS = flags.FLAGS
 
@@ -48,6 +50,8 @@ def main(argv):
     logging.info(f"Config: {FLAGS.config}")
 
     config = FLAGS.config
+    if config.do_train:
+        train_fn(config)
 
 
 if __name__ == "__main__":
