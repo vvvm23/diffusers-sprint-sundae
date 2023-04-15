@@ -20,7 +20,7 @@ Clone the repository:
 git clone https://github.com/vvvm23/diffusers-sprint-sundae/git
 cd diffusers-sprint-sundae
 ```
-Install the requirements:
+Install Jax for your system, then install the requirements:
 ```
 pip install -r requirements_dev.txt
 pip install -e .
