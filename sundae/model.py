@@ -10,7 +10,7 @@ from typing import Callable, Optional, Sequence, Union, Literal
 import einops
 from math import sqrt
 
-from .rotary_embeddings import broadcat, generate_embeddings, apply_rotary_emb
+from sundae.rotary_embeddings import broadcat, generate_embeddings, apply_rotary_emb
 
 def exists(val):
     return val is not None
