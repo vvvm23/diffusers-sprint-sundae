@@ -27,7 +27,7 @@ import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
 
 from sundae import SundaeModel
-from train_utils import build_train_step
+from train_utils import build_train_step, create_train_state
 from utils import dict_to_namespace
 
 # Hatman: added imports for wandb, argparse, and bunch
@@ -57,22 +57,6 @@ def get_data_loader(
         num_workers=num_workers,
     )
     return dataset, loader
-
-
-def create_train_state(key, config: dict):
-    model = SundaeModel(config.model)
-    params = model.init(
-        key,
-        jnp.zeros(
-            [1, config.model.max_seq_len * config.model.max_seq_len], dtype=jnp.int32
-        ),
-    )["params"]
-    opt = optax.chain(
-        optax.clip_by_global_norm(config.training.max_grad_norm),
-        optax.adamw(config.training.learning_rate, weight_decay=config.training.weight_decay)
-    ) 
-
-    return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
 
 def main(config, args):

@@ -5,6 +5,7 @@ from typing import Optional
 import einops
 
 import flax.linen as nn
+from flax.training import train_state
 import optax
 
 import einops
@@ -20,6 +21,22 @@ def corrupt_batch(batch, key, num_tokens):
     mask = rand < einops.rearrange(corruption_prob_per_latent, "b -> b ()")
     random_idx = jax.random.randint(keys[2], batch.shape, 0, num_tokens)
     return mask * random_idx + ~mask * batch
+
+
+def create_train_state(key, config: dict):
+    model = SundaeModel(config.model)
+    params = model.init(
+        key,
+        jnp.zeros(
+            [1, config.model.max_seq_len * config.model.max_seq_len], dtype=jnp.int32
+        ),
+    )["params"]
+    opt = optax.chain(
+        optax.clip_by_global_norm(config.training.max_grad_norm),
+        optax.adamw(config.training.learning_rate, weight_decay=config.training.weight_decay)
+    ) 
+
+    return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
 
 def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encoder: Optional[nn.Module] = None):
