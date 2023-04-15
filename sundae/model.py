@@ -162,8 +162,6 @@ class Attention(nn.Module):
         out = einops.rearrange(out, "b h n d -> b n (h d)", h=h)
         out = Dense(x.shape[-1], use_bias=True)(out)
 
-        # out = nn.LayerNorm()(out)
-
         return out
 
 
@@ -186,12 +184,12 @@ class Transformer(nn.Module):
             for i in range(self.depth)
         ]
 
-        self.norm = nn.LayerNorm()
-
         # TODO: seems to break if we cache here
         # see https://github.com/google/flax/discussions/1921 for potential fix
         # freqs = generate_embeddings(jnp.linspace(-1.0, 1.0, num=self.max_seq_len), self.rotary_emb_dim, max_freq=self.max_seq_len)
         # self.rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
+
+        self.norm = nn.LayerNorm()
 
     def __call__(
         self,
@@ -277,7 +275,7 @@ class HourglassTransformer(nn.Module):
         else:
             self.valley_transformer = HourglassTransformer(
                 depth=valley_depth,
-                max_seq_len=self.max_seq_len // (shorten_factor * shorten_factor),
+                max_seq_len=self.max_seq_len // shorten_factor,
                 resample_type=self.resample_type,
                 shorten_factor=rest_shorten_factor,
                 attn_resampling=attn_resampling,
@@ -316,7 +314,8 @@ class HourglassTransformer(nn.Module):
         x = self.pre_transformer(x, mask=mask)
         # TODO: pad x and mask to multiple for pooling, but maybe not needed
 
-        residual = jnp.copy(x)
+        # residual = jnp.copy(x)
+        residual = x
         downsampled = self.downsample(x)
 
         if mask is not None:
@@ -338,7 +337,8 @@ class HourglassTransformer(nn.Module):
             downsampled = einops.rearrange(downsampled, "(b n) () d -> b n d", b=b)
 
         x = self.valley_transformer(downsampled, mask=downsampled_mask)
-        valley_out = jnp.copy(x)
+        # valley_out = jnp.copy(x)
+        valley_out = x
 
         x = self.upsample(x)
         x = x + residual
@@ -382,7 +382,7 @@ class HourglassTransformerLM(nn.Module):
         x = token_embedding(x)
         if self.rotary_emb_dim is None:
             pos_emb = nn.Embed(
-                self.max_seq_len, self.dim, dtype=dtype, param_dtype=dtype
+                self.max_seq_len*self.max_seq_len, self.dim, dtype=dtype, param_dtype=dtype
             )(jnp.arange(x.shape[1]))
             x = x + einops.rearrange(pos_emb, "n d -> () n d")
 
