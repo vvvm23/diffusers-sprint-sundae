@@ -74,7 +74,8 @@ def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encod
                 all_logits.append(logits)
 
                 if i != config.training.unroll_steps - 1:
-                    samples = jax.random.categorical(subkey, logits, axis=-1)
+                    # samples = jax.random.categorical(subkey, logits, axis=-1)
+                    samples = logits.argmax(axis=-1)
                     samples = jax.lax.stop_gradient(samples)
 
             # total_loss = jnp.concatenate(losses).mean()

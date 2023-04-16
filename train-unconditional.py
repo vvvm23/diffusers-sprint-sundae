@@ -126,7 +126,7 @@ def main(config, args):
                 wandb_metrics['accuracy'] /= log_interval
                 #wandb.log(wandb_metrics)
 
-        # checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
+        checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
 
 
 if __name__ == "__main__":
