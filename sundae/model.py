@@ -184,7 +184,7 @@ class Transformer(nn.Module):
                 PreNormResidual(Attention(self.heads, self.dim_head)),
                 PreNormResidual(FeedForward(self.ff_mult)),
             )
-            for i in range(self.depth)
+            for _ in range(self.depth)
         ]
 
         # TODO: seems to break if we cache here
@@ -283,7 +283,7 @@ class HourglassTransformer(nn.Module):
                 max_seq_len=self.max_seq_len // shorten_factor,
                 resample_type=self.resample_type,
                 shorten_factor=rest_shorten_factor,
-                attn_resampling=attn_resampling,
+                attn_resampling=self.attn_resampling,
                 **transformer_kwargs
             )
 
@@ -313,14 +313,16 @@ class HourglassTransformer(nn.Module):
             depth=post_layers_depth, max_seq_len=self.max_seq_len, **transformer_kwargs
         )
 
+        self.norm = LayerNorm()
+
     def __call__(self, x: ArrayLike, mask: Optional[ArrayLike] = None):
         s = self.shorten_factor
         b, n = x.shape[:2]
         x = self.pre_transformer(x, mask=mask)
         # TODO: pad x and mask to multiple for pooling, but maybe not needed
 
-        # residual = jnp.copy(x)
-        residual = x
+        residual = jnp.copy(x)
+        # residual = x
         downsampled = self.downsample(x)
 
         if mask is not None:
@@ -342,8 +344,8 @@ class HourglassTransformer(nn.Module):
             downsampled = einops.rearrange(downsampled, "(b n) () d -> b n d", b=b)
 
         x = self.valley_transformer(downsampled, mask=downsampled_mask)
-        # valley_out = jnp.copy(x)
-        valley_out = x
+        valley_out = jnp.copy(x)
+        # valley_out = x
 
         x = self.upsample(x)
         x = x + residual
@@ -359,7 +361,7 @@ class HourglassTransformer(nn.Module):
         # TODO: if we decide to use padding, bring back to original length using `n`
 
         x = self.post_transformer(x, mask=mask)
-        return x
+        return self.norm(x)
 
 
 # `HourglassTransformer` with embedding layer and token head.
