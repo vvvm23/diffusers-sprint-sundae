@@ -16,7 +16,8 @@ def exists(val):
     return val is not None
 
 def Dense(dim, *args, **kwargs):
-    layer = nn.Dense(dim, *args, **kwargs, dtype=jnp.bfloat16, param_dtype=jnp.bfloat16, 
+    dtype = jnp.bfloat16
+    layer = nn.Dense(dim, *args, **kwargs, dtype=dtype, param_dtype=dtype, 
         kernel_init=nn.initializers.he_uniform(),
         bias_init=nn.initializers.uniform(1 / sqrt(dim)) # lecun_uniform 
     )
@@ -178,6 +179,7 @@ class Transformer(nn.Module):
     max_seq_len: int = 256
     parallel_block: bool = False
     cross_attention_period: int = 2
+    norm_out: bool = False
 
     def setup(self):
         self.layers = [
@@ -193,7 +195,7 @@ class Transformer(nn.Module):
         # freqs = generate_embeddings(jnp.linspace(-1.0, 1.0, num=self.max_seq_len), self.rotary_emb_dim, max_freq=self.max_seq_len)
         # self.rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
 
-        self.norm = LayerNorm()
+        self.norm = LayerNorm() if self.norm_out else None
 
     def __call__(
         self,
@@ -217,7 +219,8 @@ class Transformer(nn.Module):
             else:
                 x = ff(attn(x, context=context if (i % self.cross_attention_period == 0) else None, pos_emb=rot_emb, mask=mask))
 
-        x = self.norm(x)
+        if self.norm_out:
+            x = self.norm(x)
         return x
 
 
@@ -234,6 +237,7 @@ class HourglassTransformer(nn.Module):
     rotary_emb_dim: Optional[int] = None
     max_seq_len: int = 256
     parallel_block: bool = False
+    norm_out: bool = False
 
     def setup(self):
         assert (
@@ -314,7 +318,7 @@ class HourglassTransformer(nn.Module):
             depth=post_layers_depth, max_seq_len=self.max_seq_len, **transformer_kwargs
         )
 
-        self.norm = LayerNorm()
+        self.norm = LayerNorm() if self.norm_out else None
 
     def __call__(self, x: ArrayLike, context: Optional[ArrayLike] = None, mask: Optional[ArrayLike] = None):
         s = self.shorten_factor
@@ -362,7 +366,10 @@ class HourglassTransformer(nn.Module):
         # TODO: if we decide to use padding, bring back to original length using `n`
 
         x = self.post_transformer(x, context=context, mask=mask)
-        return self.norm(x)
+        if self.norm_out:
+            x = self.norm(x)
+
+        return x
 
 
 # `HourglassTransformer` with embedding layer and token head.
@@ -404,14 +411,16 @@ class HourglassTransformerLM(nn.Module):
             rotary_emb_dim=self.rotary_emb_dim,
             max_seq_len=self.max_seq_len,
             parallel_block=self.parallel_block,
+            norm_out=True,
         )(x, context=context, mask=mask)
 
         if self.tied_embedding:
             return token_embedding.attend(x)
 
-        return nn.Dense(self.num_tokens, dtype=jnp.float32,
-            kernel_init=nn.initializers.he_uniform(),
-            bias_init=nn.initializers.uniform(1 / sqrt(self.num_tokens)))(x) 
+        # return nn.Dense(self.num_tokens, dtype=jnp.float32,
+        #     kernel_init=nn.initializers.he_uniform(),
+        #     bias_init=nn.initializers.uniform(1 / sqrt(self.num_tokens)))(x) 
+        return nn.Dense(self.num_tokens, dtype=jnp.float32)(x)
 
 
 class SundaeModel(nn.Module):

@@ -1,13 +1,7 @@
 # ported from lucidrains implementation https://github.com/lucidrains/rotary-embedding-torch
-from math import pi, log
+from math import pi
 
-import torch
-
-import jax
 import jax.numpy as jnp
-
-import flax
-import flax.linen as nn
 
 from einops import rearrange, repeat
 

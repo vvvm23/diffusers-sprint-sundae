@@ -1,10 +1,9 @@
 import jax
-from jax import lax, numpy as jnp
-from jax.typing import ArrayLike
+from jax import numpy as jnp
 
 import flax
 import flax.linen as nn
-from flax.training import train_state, checkpoints, orbax_utils
+from flax.training import orbax_utils
 import orbax.checkpoint
 
 import optax
@@ -16,7 +15,7 @@ import numpy as np
 
 from torch.utils.data import DataLoader
 import torchvision.transforms as T
-from torchvision.datasets import MNIST, ImageFolder
+from torchvision.datasets import ImageFolder
 
 import datetime
 from pathlib import Path
@@ -26,7 +25,6 @@ import tqdm
 import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
 
-from sundae import SundaeModel
 from train_utils import build_train_step, create_train_state
 from utils import dict_to_namespace
 
@@ -52,7 +50,6 @@ def get_data_loader(
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=True,
         drop_last=True,
         num_workers=num_workers,
     )
@@ -128,7 +125,7 @@ def main(config, args):
                 wandb_metrics['accuracy'] /= log_interval
                 #wandb.log(wandb_metrics)
 
-        checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
+        # checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
 
 
 if __name__ == "__main__":
@@ -167,32 +164,32 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=128,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=32,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=8,
         ),
         model=dict(
             num_tokens=256,
             dim=1024,
-            depth=[3, 12, 3],
-            shorten_factor=4,
+            depth=[2, 14, 2],
+            shorten_factor=2,
             resample_type="linear",
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
             max_seq_len=32, # effectively squared to 256
-            parallel_block=True,
+            parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
-            learning_rate = 4e-4,
+            learning_rate = 3e-5,
             unroll_steps=3,
-            epochs=100,  # TODO: maybe replace with train steps
-            max_grad_norm=2.0,
+            epochs=100, # TODO: maybe replace with train steps
+            max_grad_norm=5.0,
             weight_decay=1e-2
         ),
         vqgan=dict(name="vq-f8-n256", dtype=jnp.float32),
-        jit_enabled=True,
+        jit_enabled=True, # TODO: remove, pmap will already jit function
     )
 
     # Hatman: To eliminate dict_to_namespace

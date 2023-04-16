@@ -19,7 +19,7 @@ def corrupt_batch(batch, key, num_tokens):
     corruption_prob_per_latent = jax.random.uniform(keys[0], (batch.shape[0],))
     rand = jax.random.uniform(keys[1], batch.shape)
     mask = rand < einops.rearrange(corruption_prob_per_latent, "b -> b ()")
-    random_idx = jax.random.randint(keys[2], batch.shape, 0, num_tokens)
+    random_idx = jax.random.randint(keys[2], batch.shape, 0, num_tokens, dtype=jnp.int32)
     return mask * random_idx + ~mask * batch
 
 
@@ -34,6 +34,7 @@ def create_train_state(key, config: dict):
     opt = optax.chain(
         optax.clip_by_global_norm(config.training.max_grad_norm),
         optax.adamw(config.training.learning_rate, weight_decay=config.training.weight_decay)
+        # optax.sgd(config.training.learning_rate)
     ) 
 
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=opt)
@@ -60,19 +61,20 @@ def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encod
             conditioning = text_encoder(conditioning)
 
         # TODO: classifier-free guidance, how to do in best way? Does it work on SUNDAE?
+        # maybe precompute empty embedding and compile as a constant?
 
         def loss_fn(params, key):
             all_logits = []
             key, subkey = jax.random.split(key)
             samples = corrupt_batch(x, subkey, config.model.num_tokens)
             for i in range(config.training.unroll_steps): # TODO: replace with real jax loop, otherwise compile time scales with num iters.
-                samples = jax.lax.stop_gradient(samples)
                 key, subkey = jax.random.split(key)
                 logits = model.apply({"params": params}, samples, context=conditioning)
                 all_logits.append(logits)
 
                 if i != config.training.unroll_steps - 1:
                     samples = jax.random.categorical(subkey, logits, axis=-1)
+                    samples = jax.lax.stop_gradient(samples)
 
             # total_loss = jnp.concatenate(losses).mean()
             logits = jnp.concatenate(all_logits)
@@ -86,10 +88,10 @@ def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encod
             state.params, key
         )
         grads = jax.lax.pmean(grads, 'replication_axis')
-        state = state.apply_gradients(grads=grads)
+        new_state = state.apply_gradients(grads=grads)
 
-        return state, loss, accuracy
+        return new_state, loss, accuracy
 
-    if config.jit_enabled:
-        return jax.jit(train_step)
+    # if config.jit_enabled: # we pmap by default so this does nothing now
+    #     return jax.jit(train_step)
     return train_step
