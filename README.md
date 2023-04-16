@@ -49,8 +49,11 @@ Further details on how to work with `ml_collections.config_flags` can be found [
 
 ### References
 [Hourglass Transformers](https://arxiv.org/abs/2110.13711)
+
 [SUNDAE](https://arxiv.org/abs/2112.06749)
+
 [SUNDAE x VQGAN](https://arxiv.org/abs/2206.12351)
+
 
 ### Acknowledgments
 `TODO: add cool things that helped us :)`
