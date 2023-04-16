@@ -16,12 +16,15 @@ def exists(val):
     return val is not None
 
 def Dense(dim, *args, **kwargs):
-    layer = nn.Dense(dim, *args, **kwargs, 
+    layer = nn.Dense(dim, *args, **kwargs, dtype=jnp.bfloat16, param_dtype=jnp.bfloat16, 
         kernel_init=nn.initializers.he_uniform(),
         bias_init=nn.initializers.uniform(1 / sqrt(dim)) # lecun_uniform 
     )
     return layer
 
+def LayerNorm(*args, **kwargs):
+    layer = nn.LayerNorm(*args, **kwargs, dtype=jnp.float32, param_dtype=jnp.float32)
+    return layer
 
 # resample functions
 class NaiveDownsample(nn.Module):
@@ -94,7 +97,7 @@ class PreNormResidual(nn.Module):
 
     @nn.compact
     def __call__(self, x: ArrayLike, **kwargs):
-        return self.fn(nn.LayerNorm()(x), **kwargs) + x
+        return self.fn(LayerNorm()(x), **kwargs) + x
 
 
 # standard transformer ff block
@@ -162,8 +165,6 @@ class Attention(nn.Module):
         out = einops.rearrange(out, "b h n d -> b n (h d)", h=h)
         out = Dense(x.shape[-1], use_bias=True)(out)
 
-        # out = nn.LayerNorm()(out)
-
         return out
 
 
@@ -183,15 +184,15 @@ class Transformer(nn.Module):
                 PreNormResidual(Attention(self.heads, self.dim_head)),
                 PreNormResidual(FeedForward(self.ff_mult)),
             )
-            for i in range(self.depth)
+            for _ in range(self.depth)
         ]
-
-        self.norm = nn.LayerNorm()
 
         # TODO: seems to break if we cache here
         # see https://github.com/google/flax/discussions/1921 for potential fix
         # freqs = generate_embeddings(jnp.linspace(-1.0, 1.0, num=self.max_seq_len), self.rotary_emb_dim, max_freq=self.max_seq_len)
         # self.rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
+
+        self.norm = LayerNorm()
 
     def __call__(
         self,
@@ -200,12 +201,14 @@ class Transformer(nn.Module):
         mask: Optional[ArrayLike] = None,
     ):
         # TODO: replace with caching
-        freqs = generate_embeddings(
-            jnp.linspace(-1.0, 1.0, num=self.max_seq_len),
-            self.rotary_emb_dim,
-            max_freq=self.max_seq_len,
-        )
-        rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
+        rot_emb = None
+        if self.rotary_emb_dim:
+            freqs = generate_embeddings(
+                jnp.linspace(-1.0, 1.0, num=self.max_seq_len),
+                self.rotary_emb_dim,
+                max_freq=self.max_seq_len,
+            )
+            rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
 
         for attn, ff in self.layers:
             if self.parallel_block:  # gpt-j style arrangement
@@ -239,7 +242,7 @@ class HourglassTransformer(nn.Module):
 
         if isinstance(self.shorten_factor, (tuple, list)):
             shorten_factor, *rest_shorten_factor = self.shorten_factor
-        elif isinstance(valley_depth, int):  # TODO: bug in OG? why valley_depth?
+        elif isinstance(valley_depth, int): 
             shorten_factor, rest_shorten_factor = self.shorten_factor, None
         else:
             shorten_factor, rest_shorten_factor = (
@@ -277,10 +280,10 @@ class HourglassTransformer(nn.Module):
         else:
             self.valley_transformer = HourglassTransformer(
                 depth=valley_depth,
-                max_seq_len=self.max_seq_len // (shorten_factor * shorten_factor),
+                max_seq_len=self.max_seq_len // shorten_factor,
                 resample_type=self.resample_type,
                 shorten_factor=rest_shorten_factor,
-                attn_resampling=attn_resampling,
+                attn_resampling=self.attn_resampling,
                 **transformer_kwargs
             )
 
@@ -310,6 +313,8 @@ class HourglassTransformer(nn.Module):
             depth=post_layers_depth, max_seq_len=self.max_seq_len, **transformer_kwargs
         )
 
+        self.norm = LayerNorm()
+
     def __call__(self, x: ArrayLike, mask: Optional[ArrayLike] = None):
         s = self.shorten_factor
         b, n = x.shape[:2]
@@ -317,6 +322,7 @@ class HourglassTransformer(nn.Module):
         # TODO: pad x and mask to multiple for pooling, but maybe not needed
 
         residual = jnp.copy(x)
+        # residual = x
         downsampled = self.downsample(x)
 
         if mask is not None:
@@ -339,6 +345,7 @@ class HourglassTransformer(nn.Module):
 
         x = self.valley_transformer(downsampled, mask=downsampled_mask)
         valley_out = jnp.copy(x)
+        # valley_out = x
 
         x = self.upsample(x)
         x = x + residual
@@ -354,7 +361,7 @@ class HourglassTransformer(nn.Module):
         # TODO: if we decide to use padding, bring back to original length using `n`
 
         x = self.post_transformer(x, mask=mask)
-        return x
+        return self.norm(x)
 
 
 # `HourglassTransformer` with embedding layer and token head.
@@ -377,12 +384,12 @@ class HourglassTransformerLM(nn.Module):
     def __call__(self, x: ArrayLike, mask: Optional[ArrayLike] = None):
         dtype = jnp.float32
         token_embedding = nn.Embed(
-            self.num_tokens, self.dim, dtype=dtype, param_dtype=dtype, embedding_init=nn.initializers.normal(stddev=1.0)
+            self.num_tokens, self.dim, dtype=dtype, embedding_init=nn.initializers.normal(stddev=1.0)
         )
         x = token_embedding(x)
         if self.rotary_emb_dim is None:
             pos_emb = nn.Embed(
-                self.max_seq_len, self.dim, dtype=dtype, param_dtype=dtype
+                self.max_seq_len*self.max_seq_len, self.dim, dtype=dtype
             )(jnp.arange(x.shape[1]))
             x = x + einops.rearrange(pos_emb, "n d -> () n d")
 
@@ -401,7 +408,9 @@ class HourglassTransformerLM(nn.Module):
         if self.tied_embedding:
             return token_embedding.attend(x)
 
-        return Dense(self.num_tokens)(x)
+        return nn.Dense(self.num_tokens, dtype=jnp.float32,
+            kernel_init=nn.initializers.he_uniform(),
+            bias_init=nn.initializers.uniform(1 / sqrt(self.num_tokens)))(x) 
 
 
 class SundaeModel(nn.Module):

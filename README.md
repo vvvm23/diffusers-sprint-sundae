@@ -20,7 +20,7 @@ Clone the repository:
 git clone https://github.com/vvvm23/diffusers-sprint-sundae/git
 cd diffusers-sprint-sundae
 ```
-Install the requirements:
+Install Jax for your system, then install the requirements:
 ```
 pip install -r requirements_dev.txt
 pip install -e .
@@ -46,6 +46,14 @@ Further details on how to work with `ml_collections.config_flags` can be found [
 
 ## Configuration
 `TODO: instructions on configuring experiments`
+
+### References
+[Hourglass Transformers](https://arxiv.org/abs/2110.13711)
+
+[SUNDAE](https://arxiv.org/abs/2112.06749)
+
+[SUNDAE x VQGAN](https://arxiv.org/abs/2206.12351)
+
 
 ### Acknowledgments
 `TODO: add cool things that helped us :)`
