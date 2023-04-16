@@ -441,6 +441,7 @@ class SundaeModel(nn.Module):
             max_seq_len=config.max_seq_len,
             parallel_block=config.parallel_block,
             tied_embedding=config.tied_embedding,
+            attn_resampling=False
         )(x, context=context, mask=mask)
 
 

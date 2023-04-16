@@ -34,6 +34,7 @@ def create_train_state(key, config: dict):
     opt = optax.chain(
         optax.clip_by_global_norm(config.training.max_grad_norm),
         optax.adamw(config.training.learning_rate, weight_decay=config.training.weight_decay)
+        # optax.lamb(config.training.learning_rate, weight_decay=config.training.weight_decay)
         # optax.sgd(config.training.learning_rate)
     ) 
 
