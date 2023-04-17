@@ -34,6 +34,7 @@ def create_train_state(key, config: dict):
     opt = optax.chain(
         optax.clip_by_global_norm(config.training.max_grad_norm),
         optax.adamw(config.training.learning_rate, weight_decay=config.training.weight_decay)
+        # optax.lamb(config.training.learning_rate, weight_decay=config.training.weight_decay)
         # optax.sgd(config.training.learning_rate)
     ) 
 
@@ -48,7 +49,9 @@ def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encod
         if vqgan is not None: 
             x = einops.rearrange(x, "n c h w -> n h w c")
             x = preprocess_vqgan(x)
+            x = jnp.asarray(x, dtype=jnp.int32)
             _, x = vqgan.encode(x)
+            x_copy = x.copy()
 
         assert (conditioning is None) == (text_encoder is None)
 

@@ -230,7 +230,7 @@ class Transformer(nn.Module):
 class HourglassTransformer(nn.Module):
     depth: Sequence[int]
     shorten_factor: Union[Sequence[int], int] = 2
-    attn_resampling: bool = True
+    attn_resampling: bool = True,
     resample_type: Literal["naive", "linear"] = "naive"
     heads: int = 8
     dim_head: int = 64
@@ -356,6 +356,7 @@ class HourglassTransformer(nn.Module):
         x = x + residual
 
         if exists(self.attn_resampling_post_valley):
+            # TODO; grads are zero at HourglassTransformer_0 attn_resampling_post_valley layers_0_0
             x = self.attn_resampling_post_valley(
                 einops.rearrange(x, "b (n s) d -> (b n) s d", s=s * s),
                 einops.rearrange(valley_out, "b n d -> (b n) () d"),
@@ -372,6 +373,7 @@ class HourglassTransformer(nn.Module):
         return x
 
 
+
 # `HourglassTransformer` with embedding layer and token head.
 # optionally tie weights
 class HourglassTransformerLM(nn.Module):
@@ -379,7 +381,7 @@ class HourglassTransformerLM(nn.Module):
     dim: int
     depth: Sequence[int]
     shorten_factor: Union[Sequence[int], int] = 2
-    attn_resampling: bool = True
+    attn_resampling: bool = True,
     resample_type: Literal["naive", "linear"] = "naive"
     heads: int = 8
     dim_head: int = 64
@@ -441,6 +443,7 @@ class SundaeModel(nn.Module):
             max_seq_len=config.max_seq_len,
             parallel_block=config.parallel_block,
             tied_embedding=config.tied_embedding,
+            attn_resampling=False
         )(x, context=context, mask=mask)
 
 

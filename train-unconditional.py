@@ -52,6 +52,7 @@ def get_data_loader(
         batch_size=batch_size,
         drop_last=True,
         num_workers=num_workers,
+        shuffle=True
     )
     return dataset, loader
 
