@@ -142,14 +142,14 @@ if __name__ == "__main__":
         model=dict(
             num_tokens=16384,
             dim=1024,
-            depth=[2, 8, 2],
+            depth=[3, 10, 3],
             shorten_factor=2,
             resample_type="linear",
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
             max_seq_len=16, # effectively squared to 256
-            parallel_block=True,
+            parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),

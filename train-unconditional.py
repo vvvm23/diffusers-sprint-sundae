@@ -24,6 +24,7 @@ import tqdm
 
 import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
+from vqgan_jax.utils import custom_to_pil
 
 from train_utils import build_train_step, create_train_state
 from utils import dict_to_namespace
@@ -112,12 +113,14 @@ def main(config, args):
     pmap_eval_step = jax.pmap(eval_step, 'replication_axis', in_axes=(0, 0, 0))
 
     log_interval = 64
+    sample_count = 0
     for ei in range(config.training.epochs):
         total_loss = 0.0
         total_accuracy = 0.0
 
         wandb_metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.tqdm(train_loader)
+        # TODO: need to change these functions to not exhaust loader before going to next phase
         for i, (batch, _) in enumerate(pb):
             batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
             key, subkey = jax.random.split(key)
@@ -137,6 +140,7 @@ def main(config, args):
 
         checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
 
+        # TODO: need to change these functions to not exhaust loader before going to next phase
         total_loss = 0.0
         total_accuracy = 0.0
         pb = tqdm.tqdm(eval_loader)
@@ -157,7 +161,13 @@ def main(config, args):
             pb.set_description(
                 f"[epoch {ei+1}] [eval] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
-
+        
+        print("sampling from current model")
+        key, subkey = jax.random.split(key)
+        sample = model.sample(subkey, num_samples=4, steps=100, temperature=0.7, proportion=0.4) # TODO: param this
+        decoded_image = jax.jit(vqgan.decode_code)(sample)
+        custom_to_pil(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c"), b1=2, b2=2).save(save_name / f'sample-{sample_count:04}.jpg')
+        sample_count += 1
 
 
 if __name__ == "__main__":
@@ -218,7 +228,7 @@ if __name__ == "__main__":
             unroll_steps=2,
             epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
-            weight_decay=1e-2
+            weight_decay=1e-2,
         ),
         vqgan=dict(name="vq-f16", dtype=jnp.float32),
         jit_enabled=True, # TODO: remove, pmap will already jit function

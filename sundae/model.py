@@ -448,6 +448,45 @@ class SundaeModel(nn.Module):
             attn_resampling=True
         )(x, context=context, mask=mask)
 
+    # TODO: jit loop
+    def sample(self, 
+        key: jax.random.PRNGKey,
+        x: Optional[ArrayLike] = None,
+        context: Optional[ArrayLike] = None, 
+        num_samples: int = 4,
+        steps: int = 100, 
+        temperature: float = 1.0, 
+        proportion: float = 0.5,
+        return_history: bool = False,
+    ):
+        if x is None:
+            key, subkey = jax.random.split(key)
+            x = jnp.random.randint(subkey, (num_samples, self.config.max_seq_len*self.config.max_seq_len), 0, self.config.num_tokens, dtype=np.int32)
+        history = []
+        for i in range(steps):
+            key, subkey = jax.random.split(key)
+            new_sample = jit_sample(sample, subkey, context=context, temperature=temperature, proportion=proportion) #  TODO: pass as array if scheduling later
+            if jnp.all(new_sample == sample): # TODO: can we move this check into jit? also add flag
+                break
+            sample = new_sample
+
+            if return_history:
+                history.append(sample)
+
+        if return_history:
+            return history
+        return sample
+
+    @jax.jit
+    def sample_step(self, sample: ArrayLike, key: jax.random.PRNGKey, context: Optional[ArrayLike] = None, temperature: float = 1.0, proportion: float = 0.5):
+        key, subkey = jax.random.split(key)
+        logits = self(sample, context=context)
+        new_sample = jax.random.categorical(subkey, logits / temperature, axis=-1)
+        mask = jax.random.uniform(key, new_sample.shape) > proportion
+        new_sample = mask * sample + ~mask * new_sample 
+
+        return new_sample
+
 
 if __name__ == "__main__":
     jax.config.update("jax_platform_name", "cpu")
