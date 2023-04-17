@@ -42,7 +42,8 @@ def get_data_loader(
     if name in ["ffhq256"]:
         dataset = ImageFolder(
             "data/ffhq256",
-            transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
+            # transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
+            transform=T.Compose([T.ToTensor()]),
         )
     else:
         raise ValueError(f"unrecognised dataset name '{name}'")
@@ -106,7 +107,7 @@ def main(config, args):
         wandb_metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.tqdm(loader)
         for i, (batch, _) in enumerate(pb):
-            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor)
+            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
             state, loss, accuracy = pmap_train_step(state, batch, subkeys) # TODO: add donate args, memory save on params
@@ -126,7 +127,7 @@ def main(config, args):
                 wandb_metrics['accuracy'] /= log_interval
                 #wandb.log(wandb_metrics)
 
-        # checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
+        checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
 
 
 if __name__ == "__main__":
@@ -166,13 +167,13 @@ if __name__ == "__main__":
         data=dict(
             name="ffhq256",
             batch_size=32,  # TODO: really this shouldn't be under data, it affects the numerics of the model
-            num_workers=8,
+            num_workers=2,
         ),
         model=dict(
             num_tokens=256,
             dim=1024,
-            depth=[2, 14, 2],
-            shorten_factor=2,
+            depth=[2, 10, 2],
+            shorten_factor=4,
             resample_type="linear",
             heads=8,
             dim_head=64,
@@ -183,7 +184,7 @@ if __name__ == "__main__":
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
-            learning_rate = 3e-5,
+            learning_rate = 1e-4,
             unroll_steps=3,
             epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
