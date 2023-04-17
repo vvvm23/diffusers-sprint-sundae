@@ -29,12 +29,14 @@ warnings.filterwarnings("ignore", category=DecompressionBombWarning)
 
 import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
+
+print("Loading VQGAN model...")
 vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
    "vq-f16", dtype=jnp.float32
 )
 
 laion_art_images = Path("/mnt/disks/persist/laion-art-images")
-laion_art_output = laion_art_images/'vqganf16_encoded.tsv'
+laion_art_output = Path("/mnt/disks/persist/laion_art_images_vqganf16_encoded")
 
 class LaionArtDataset(Dataset):
     """
@@ -102,6 +104,7 @@ class LaionArtDataset(Dataset):
     def __getitem__(self, i):
         image = self._get_raw_image(i)
         caption = self._get_raw_text(i)
+        image_id = self.captions.iloc[i]['image_id']
         if self.image_transform is not None:
             if self.image_transform_type == 'torchvision':
                 image = self.image_transform(image)
@@ -109,7 +112,7 @@ class LaionArtDataset(Dataset):
                 image = self.image_transform(image=np.array(image))['image']
             else:
                 raise NotImplementedError(f"{self.image_transform_type=}")
-        return {'image': image, 'text': caption} if self.include_captions else image
+        return {'image': image, 'text': caption, 'image_id': image_id} if self.include_captions else image
 
     def __len__(self):
         return self.size
@@ -131,6 +134,7 @@ def image_transform(image):
     return image
 
 # Create dataset
+print("Creating dataset")
 dataset = LaionArtDataset(
     images_root=images_root,
     captions_path=captions_path,
@@ -138,10 +142,8 @@ dataset = LaionArtDataset(
     image_transform_type='torchvision',
     include_captions=False
 )
-dataset._get_raw_image(878)
 
 def encode(model, batch):
-#     print("jitting encode function")
     _, indices = model.encode(batch)
     return indices
 
@@ -163,8 +165,9 @@ def superbatch_generator(dataloader, num_tpus):
         yield superbatch
 
 import os
+import time
 
-def encode_captioned_dataset(dataset, output_tsv, batch_size=32, num_workers=16):
+def encode_captioned_dataset(dataset, output_tsv, batch_size=32, num_workers=16, save_frequency=1000):
     if os.path.isfile(output_tsv):
         print(f"Destination file {output_tsv} already exists, please move away.")
         return
@@ -172,27 +175,57 @@ def encode_captioned_dataset(dataset, output_tsv, batch_size=32, num_workers=16)
     num_tpus = jax.device_count()    
     dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
     superbatches = superbatch_generator(dataloader, num_tpus=num_tpus)
-    
     p_encoder = pmap(lambda batch: encode(vqgan, batch))
 
+    all_captions = []
+    all_image_ids = []
+    all_encoding = []
+    n_file = 1
     # We save each superbatch to avoid reallocation of buffers as we process them.
     # We keep the file open to prevent excessive file seeks.
-    with open(output_tsv, "w") as file:
-        iterations = len(dataset) // (batch_size * num_tpus)
-        for n in tqdm(range(iterations)):
-            superbatch = next(superbatches)
-            encoded = p_encoder(superbatch.numpy())
-            encoded = encoded.reshape(-1, encoded.shape[-1])
+
+    iterations = len(dataset) // (batch_size * num_tpus)
+    for n in tqdm(range(iterations)):
+        superbatch = next(superbatches)
+        encoded = p_encoder(superbatch.numpy())
+        encoded = encoded.reshape(-1, encoded.shape[-1])
+        
+        # Extract fields from the dataset internal `captions` property, and save to disk
+        start_index = n * batch_size * num_tpus
+        end_index = (n+1) * batch_size * num_tpus
+        paths = dataset.captions["image_file"][start_index:end_index].values
+        captions = dataset.captions["caption"][start_index:end_index].values
+        image_ids = dataset.captions["image_id"][start_index:end_index].values
+        
+        all_captions.extend(list(captions))
+        all_encoding.extend(encoded.tolist())
+        all_image_ids.extend(list(image_ids))
+
+        # save files
+        if (n + 1) % save_frequency == 0:
             # from IPython import embed; embed()
-            # Extract fields from the dataset internal `captions` property, and save to disk
-            start_index = n * batch_size * num_tpus
-            end_index = (n+1) * batch_size * num_tpus
-            paths = dataset.captions["image_file"][start_index:end_index].values
-            captions = dataset.captions["caption"][start_index:end_index].values
-            encoded_as_string = list(map(lambda item: np.array2string(item, separator=',', max_line_width=50000, formatter={'int':lambda x: str(x)}), encoded))
-            batch_df = pd.DataFrame.from_dict({"image_file": paths, "caption": captions, "encoding": encoded_as_string})
-            batch_df.to_csv(file, sep='\t', header=(n==0), index=None)
+            print(f"Saving file {n_file}")
+            batch_df = pd.DataFrame.from_dict(
+                {"caption": all_captions, "encoding": all_encoding, "image_id": all_image_ids}
+            )
+            batch_df.to_parquet(f"{laion_art_output}/{n_file:03d}.parquet")
+            all_captions = []
+            all_encoding = []
+            all_image_ids = []
+            n_file += 1
+    
+    if len(all_captions):
+        print(f"Saving final file {n_file}")
+        batch_df = pd.DataFrame.from_dict(
+            {"caption": all_captions, "encoding": all_encoding, 'image_id': all_image_ids}
+        )
+        batch_df.to_parquet(f"{laion_art_output}/{n_file:03d}.parquet")
+
+
 
 print(f"device_count: {jax.device_count()}")
 print("Encoding dataset...")
-encode_captioned_dataset(dataset, laion_art_output, batch_size=64, num_workers=16)
+batch_size = 128  # Per device
+num_workers = 16  # For parallel processing
+save_frequency = 128  # Number of batches to create a new file
+encode_captioned_dataset(dataset, laion_art_output, batch_size=batch_size, num_workers=num_workers, save_frequency=save_frequency)
