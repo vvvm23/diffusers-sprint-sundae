@@ -165,25 +165,25 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=64,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=32,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=2,
         ),
         model=dict(
             num_tokens=256,
             dim=1024,
-            depth=[4, 12, 4],
-            shorten_factor=2,
+            depth=[2, 10, 2],
+            shorten_factor=4,
             resample_type="linear",
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
             max_seq_len=32, # effectively squared to 256
-            parallel_block=True,
+            parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
-            learning_rate = 3e-4,
+            learning_rate = 1e-4,
             unroll_steps=3,
             epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
