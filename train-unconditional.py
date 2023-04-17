@@ -13,7 +13,7 @@ from typing import Callable, Optional, Sequence, Union, Literal
 
 import numpy as np
 
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 import torchvision.transforms as T
 from torchvision.datasets import ImageFolder
 
@@ -37,7 +37,7 @@ from bunch import Bunch
 # TODO: expand for whatever datasets we will use
 # TODO: auto train-valid split
 def get_data_loader(
-    name: Literal["ffhq256"], batch_size: int = 1, num_workers: int = 0
+    name: Literal["ffhq256"], batch_size: int = 1, num_workers: int = 0, train: bool = True
 ):
     if name in ["ffhq256"]:
         dataset = ImageFolder(
@@ -47,6 +47,13 @@ def get_data_loader(
         )
     else:
         raise ValueError(f"unrecognised dataset name '{name}'")
+
+    if train:
+        dataset = Subset(dataset, list(range(60_000)))
+        # dataset = Subset(dataset, list(range(1_000)))
+    else:
+        dataset = Subset(dataset, list(range(60_000, 70_000)))
+        # dataset = Subset(dataset, list(range(1_000, 1_100)))
 
     loader = DataLoader(
         dataset,
@@ -70,8 +77,11 @@ def main(config, args):
     print("Random seed:", args.seed)
 
     print(f"Loading dataset '{config.data.name}'")
-    _, loader = get_data_loader(
-        config.data.name, config.data.batch_size, config.data.num_workers
+    _, train_loader = get_data_loader(
+        config.data.name, config.data.batch_size, config.data.num_workers, train=True
+    )
+    _, eval_loader = get_data_loader(
+        config.data.name, config.data.batch_size*2, config.data.num_workers, train=False
     )
 
     print(f"Loading VQ-GAN")
@@ -86,7 +96,8 @@ def main(config, args):
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
     print(f"Saving checkpoints to directory {save_name}")
-    train_step = build_train_step(config, vqgan=vqgan)
+    train_step = build_train_step(config, vqgan=vqgan, train=True)
+    eval_step = build_train_step(config, vqgan=vqgan, train=False)
 
     # TODO: wandb logging plz: Hatman
     # TODO: need flag to toggle on and off otherwise we will pollute project
@@ -98,6 +109,7 @@ def main(config, args):
     save_args = orbax_utils.save_args_from_target(state)
 
     pmap_train_step = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, 0))
+    pmap_eval_step = jax.pmap(eval_step, 'replication_axis', in_axes=(0, 0, 0))
 
     log_interval = 64
     for ei in range(config.training.epochs):
@@ -105,7 +117,7 @@ def main(config, args):
         total_accuracy = 0.0
 
         wandb_metrics = dict(loss=0.0, accuracy=0.0)
-        pb = tqdm.tqdm(loader)
+        pb = tqdm.tqdm(train_loader)
         for i, (batch, _) in enumerate(pb):
             batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
             key, subkey = jax.random.split(key)
@@ -120,14 +132,32 @@ def main(config, args):
             wandb_metrics['accuracy'] += accuracy
 
             pb.set_description(
-                f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
+                f"[epoch {ei+1}] [train] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
-            if i % log_interval == 0:
-                wandb_metrics['loss'] /= log_interval
-                wandb_metrics['accuracy'] /= log_interval
-                #wandb.log(wandb_metrics)
 
         checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
+
+        total_loss = 0.0
+        total_accuracy = 0.0
+        pb = tqdm.tqdm(eval_loader)
+        for i, (batch, _) in enumerate(pb):
+            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
+            key, subkey = jax.random.split(key)
+            subkeys = jax.random.split(subkey, replication_factor)
+            loss, accuracy = pmap_eval_step(state, batch, subkeys)
+
+            loss, accuracy = loss.mean(), accuracy.mean()
+            total_loss += loss
+            total_accuracy += accuracy
+
+            # TODO: need to separate out train and eval time metrics
+            wandb_metrics['loss'] += loss
+            wandb_metrics['accuracy'] += accuracy
+
+            pb.set_description(
+                f"[epoch {ei+1}] [eval] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
+            )
+
 
 
 if __name__ == "__main__":
@@ -170,27 +200,27 @@ if __name__ == "__main__":
             num_workers=2,
         ),
         model=dict(
-            num_tokens=256,
+            num_tokens=16384,
             dim=1024,
-            depth=[2, 10, 2],
-            shorten_factor=4,
+            depth=[3, 10, 3],
+            shorten_factor=2,
             resample_type="linear",
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
-            max_seq_len=32, # effectively squared to 256
+            max_seq_len=16, # effectively squared to 256
             parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
-            learning_rate = 1e-4,
-            unroll_steps=3,
+            learning_rate = 3e-5,
+            unroll_steps=2,
             epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
             weight_decay=1e-2
         ),
-        vqgan=dict(name="vq-f8-n256", dtype=jnp.float32),
+        vqgan=dict(name="vq-f16", dtype=jnp.float32),
         jit_enabled=True, # TODO: remove, pmap will already jit function
     )
 
