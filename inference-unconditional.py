@@ -59,9 +59,6 @@ def main(config, args):
     sample_dir = setup_sample_dir()
 
     print(f"Restoring model from {args.checkpoint}")
-    # params = checkpoints.restore_checkpoint(
-        # ckpt_dir=args.checkpoint, target=None, step=args.checkpoint_step
-    # )['params']
     ckptr = orbax.checkpoint.Checkpointer(orbax.checkpoint.PyTreeCheckpointHandler())
     params = ckptr.restore(args.checkpoint, item=None)['params']
 
@@ -76,25 +73,32 @@ def main(config, args):
         dtype=jnp.int32,
     )
 
-    print("Beginning sampling loop")
-    # TODO: jit loop properly. don't naively jit loop as compile time will scale with sample steps
-    for i in tqdm.trange(args.sample_steps):
+    @jax.jit
+    def jit_sample(sample, key):
         logits = model.apply({"params": params}, sample)
 
         key, subkey = jax.random.split(key)
+        # new_sample = logits.argmax(axis=-1)
         new_sample = jax.random.categorical(
             subkey, logits / args.sample_temperature, axis=-1
         )
 
-        key, subkey = jax.random.split(key)
-
         # approx x% of mask will be False (aka where to update)
-        mask = jax.random.uniform(subkey, new_sample.shape) > args.sample_proportion
+        mask = jax.random.uniform(key, new_sample.shape) > args.sample_proportion
 
         # where True (aka, where to fix) copy from original sample
         # new_sample[mask] = sample[mask]
         # new_sample = new_sample.at[mask].set(sample.at[mask]) # <~~ no bueno!
         new_sample = mask * sample + ~mask * new_sample # JIT-compile must have static shape, hence this monstrosity
+
+        return new_sample
+
+    print("Beginning sampling loop")
+    history = []
+    # TODO: jit loop properly. don't naively jit loop as compile time will scale with sample steps
+    for i in tqdm.trange(args.sample_steps):
+        key, subkey = jax.random.split(key)
+        new_sample = jit_sample(sample, subkey)
 
         if jnp.all(new_sample == sample):
             print(f"No change during sampling step {i}. Terminating.")
@@ -102,14 +106,20 @@ def main(config, args):
 
         # now copy back to original sample to update
         sample = new_sample
+        if args.history:
+            history.append(sample)
 
-    print("Decoding latents with VQGAN")
-    decoded_samples = vqgan.decode_code(sample)
+    if args.history:
+        all_imgs = []
+        for t, f in enumerate(history):
+            for i, s in enumerate(f):
+                img = vqgan.decode_code(s)[0]
+                custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i}_{j}.png")
+    else:
+        decoded_samples = vqgan.decode_code(sample)
 
-    print(f"Saving to {sample_dir.as_posix()}")
-    for i, img in enumerate(decoded_samples):
-        custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i}.png")
-
+        for i, img in enumerate(decoded_samples):
+            custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i}.png")
 
 if __name__ == "__main__":
     # TODO: add proper argparsing!: Hatman
@@ -125,24 +135,25 @@ if __name__ == "__main__":
     parser.add_argument("--sample-steps", type=int, default=100)
     parser.add_argument("--sample-temperature", type=float, default=0.6)
     parser.add_argument("--sample-proportion", type=float, default=0.3)
+    parser.add_argument("--history", action='store_true')
     args = parser.parse_args()
 
     config = dict(
         model=dict(
-            num_tokens=256,
+            num_tokens=16384,
             dim=1024,
-            depth=[3, 12, 3],
-            shorten_factor=4,
+            depth=[2, 8, 2],
+            shorten_factor=2,
             resample_type="linear",
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
-            max_seq_len=32, # effectively squared to 256
+            max_seq_len=16, # effectively squared to 256
             parallel_block=True,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
-        vqgan=dict(name="vq-f8-n256", dtype=jnp.bfloat16),
+        vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
         jit_enabled=True,
     )
 
