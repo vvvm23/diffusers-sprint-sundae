@@ -161,8 +161,10 @@ class Attention(nn.Module):
             jnp.where(~mask, mask_value, sim)  # TODO: check mask polarity is right
         # no need for causal mask, model is always non-causal
 
+        sim = jnp.array(sim, dtype=jnp.float32)
         attn = nn.softmax(sim, axis=-1)
         out = jnp.einsum("b h i j, b h j d -> b h i d", attn, v)
+        out = jnp.array(out, dtype=jnp.float32)
         out = einops.rearrange(out, "b h n d -> b n (h d)", h=h)
         out = Dense(x.shape[-1], use_bias=True)(out)
 
@@ -443,7 +445,7 @@ class SundaeModel(nn.Module):
             max_seq_len=config.max_seq_len,
             parallel_block=config.parallel_block,
             tied_embedding=config.tied_embedding,
-            attn_resampling=False
+            attn_resampling=True
         )(x, context=context, mask=mask)
 
 
