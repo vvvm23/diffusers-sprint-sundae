@@ -1,4 +1,5 @@
 import jax
+from jax import make_jaxpr
 from jax import numpy as jnp
 
 import flax
@@ -51,10 +52,8 @@ def get_data_loader(
 
     if train:
         dataset = Subset(dataset, list(range(60_000)))
-        # dataset = Subset(dataset, list(range(1_000)))
     else:
         dataset = Subset(dataset, list(range(60_000, 70_000)))
-        # dataset = Subset(dataset, list(range(1_000, 1_100)))
 
     loader = DataLoader(
         dataset,
@@ -69,6 +68,15 @@ def get_data_loader(
 def main(config, args):
     print("Config:", config)
     print("Args:", args)
+
+    # import jax
+    # from sundae import SundaeModel
+    # from jax import make_jaxpr
+    # x = jnp.zeros((1, config.model.max_seq_len*config.model.max_seq_len), dtype=jnp.int32)
+    # model = SundaeModel(config.model)
+    # params = model.init(jax.random.PRNGKey(0), x)['params']
+    # print(make_jaxpr(lambda t: model.apply({'params': params}, t))(x))
+    # exit()
 
     devices = jax.devices()
     print("JAX devices:", devices)
@@ -92,13 +100,13 @@ def main(config, args):
 
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config)
-    state = flax.jax_utils.replicate(state)
 
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
     print(f"Saving checkpoints to directory {save_name}")
     train_step = build_train_step(config, vqgan=vqgan, train=True)
     eval_step = build_train_step(config, vqgan=vqgan, train=False)
+    state = flax.jax_utils.replicate(state)
 
     # TODO: wandb logging plz: Hatman
     # TODO: need flag to toggle on and off otherwise we will pollute project
@@ -114,6 +122,7 @@ def main(config, args):
 
     log_interval = 64
     sample_count = 0
+    from vqgan_jax.utils import custom_to_pil
     for ei in range(config.training.epochs):
         total_loss = 0.0
         total_accuracy = 0.0
@@ -126,7 +135,6 @@ def main(config, args):
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
             state, loss, accuracy = pmap_train_step(state, batch, subkeys) # TODO: add donate args, memory save on params
-
             loss, accuracy = loss.mean(), accuracy.mean()
             total_loss += loss
             total_accuracy += accuracy
@@ -162,12 +170,12 @@ def main(config, args):
                 f"[epoch {ei+1}] [eval] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
         
-        print("sampling from current model")
-        key, subkey = jax.random.split(key)
-        sample = model.sample(subkey, num_samples=4, steps=100, temperature=0.7, proportion=0.4) # TODO: param this
-        decoded_image = jax.jit(vqgan.decode_code)(sample)
-        custom_to_pil(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c"), b1=2, b2=2).save(save_name / f'sample-{sample_count:04}.jpg')
-        sample_count += 1
+        #print("sampling from current model")
+        #key, subkey = jax.random.split(key)
+        #sample = model.sample(subkey, num_samples=4, steps=100, temperature=0.7, proportion=0.4) # TODO: param this
+        #decoded_image = jax.jit(vqgan.decode_code)(sample)
+        #custom_to_pil(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c"), b1=2, b2=2).save(save_name / f'sample-{sample_count:04}.jpg')
+        #sample_count += 1
 
 
 if __name__ == "__main__":
@@ -206,20 +214,26 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=32,  # TODO: really this shouldn't be under data, it affects the numerics of the model
-            num_workers=2,
+            batch_size=64,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            num_workers=4,
         ),
         model=dict(
-            num_tokens=16384,
+            num_tokens=256,
+            # num_tokens=10,
             dim=1024,
-            depth=[3, 10, 3],
-            shorten_factor=2,
+            # dim=32,
+            depth=[2, 12, 2],
+            # depth=[1,1,1],
+            shorten_factor=4,
             resample_type="linear",
-            heads=8,
+            heads=2,
             dim_head=64,
+            # dim_head=8,
             rotary_emb_dim=32,
-            max_seq_len=16, # effectively squared to 256
-            parallel_block=False,
+            # rotary_emb_dim=4,
+            max_seq_len=32, # effectively squared to 256
+            # max_seq_len=4, # effectively squared to 256
+            parallel_block=True,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
@@ -229,9 +243,9 @@ if __name__ == "__main__":
             epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
             weight_decay=1e-2,
-            temperature=0.5
+            temperature=1.0
         ),
-        vqgan=dict(name="vq-f16", dtype=jnp.float32),
+        vqgan=dict(name="vq-f8-n256", dtype=jnp.bfloat16),
         jit_enabled=True, # TODO: remove, pmap will already jit function
     )
 

@@ -1,6 +1,7 @@
 import jax
 from jax import lax, numpy as jnp
 from jax.typing import ArrayLike
+from jax import make_jaxpr
 
 import flax
 import flax.linen as nn
@@ -73,9 +74,10 @@ def main(config, args):
         dtype=jnp.int32,
     )
 
-    @jax.jit
+    #@jax.jit
     def jit_sample(sample, key):
         logits = model.apply({"params": params}, sample)
+        print(logits)
 
         key, subkey = jax.random.split(key)
         # new_sample = logits.argmax(axis=-1)
@@ -149,7 +151,7 @@ if __name__ == "__main__":
             dim_head=64,
             rotary_emb_dim=32,
             max_seq_len=16, # effectively squared to 256
-            parallel_block=False,
+            parallel_block=True,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),

@@ -297,7 +297,7 @@ class HourglassTransformer(nn.Module):
         self.attn_resampling_pre_valley = (
             Transformer(
                 depth=1,
-                max_seq_len=self.max_seq_len // shorten_factor,
+                max_seq_len=self.max_seq_len
                 **transformer_kwargs
             )
             if self.attn_resampling
@@ -306,7 +306,7 @@ class HourglassTransformer(nn.Module):
         self.attn_resampling_post_valley = (
             Transformer(
                 depth=1,
-                max_seq_len=self.max_seq_len // shorten_factor,
+                max_seq_len=self.max_seq_len
                 **transformer_kwargs
             )
             if self.attn_resampling
@@ -421,10 +421,10 @@ class HourglassTransformerLM(nn.Module):
         if self.tied_embedding:
             return token_embedding.attend(x)
 
-        # return nn.Dense(self.num_tokens, dtype=jnp.float32,
-        #     kernel_init=nn.initializers.he_uniform(),
-        #     bias_init=nn.initializers.uniform(1 / sqrt(self.num_tokens)))(x) 
-        return nn.Dense(self.num_tokens, dtype=jnp.float32)(x)
+        return nn.Dense(self.num_tokens, dtype=jnp.float32,
+            kernel_init=nn.initializers.he_uniform(),
+            bias_init=nn.initializers.uniform(1 / sqrt(self.num_tokens)))(x) 
+        #return nn.Dense(self.num_tokens, dtype=jnp.float32)(x)
 
 
 class SundaeModel(nn.Module):
@@ -445,7 +445,7 @@ class SundaeModel(nn.Module):
             max_seq_len=config.max_seq_len,
             parallel_block=config.parallel_block,
             tied_embedding=config.tied_embedding,
-            attn_resampling=True
+            attn_resampling=False
         )(x, context=context, mask=mask)
 
     # TODO: jit loop

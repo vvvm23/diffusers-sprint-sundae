@@ -49,9 +49,8 @@ def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encod
         if vqgan is not None: 
             x = einops.rearrange(x, "n c h w -> n h w c")
             x = preprocess_vqgan(x)
-            x = jnp.asarray(x, dtype=jnp.int32)
+            # x = jnp.asarray(x, dtype=jnp.int32) # WHY WHY WHY WHY WHY # WHY WHY WHY WHY WHY # WHY WHY WHY WHY WHY # WHY WHY WHY WHY WHY # WHY WHY WHY WHY WHY
             _, x = vqgan.encode(x)
-            x_copy = x.copy()
 
         assert (conditioning is None) == (text_encoder is None)
 
@@ -75,12 +74,11 @@ def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encod
                 logits = model.apply({"params": params}, samples, context=conditioning)
                 all_logits.append(logits)
 
-                if i != config.training.unroll_steps - 1:
-                    if config.training.temperature > 0.0:
-                        samples = jax.random.categorical(subkey, logits / config.training.temperature, axis=-1)
-                    else:
-                        samples = logits.argmax(axis=-1)
-                    samples = jax.lax.stop_gradient(samples)
+                if config.training.temperature > 0.0:
+                    samples = jax.random.categorical(subkey, logits / config.training.temperature, axis=-1)
+                else:
+                    samples = logits.argmax(axis=-1)
+                samples = jax.lax.stop_gradient(samples)
 
             # total_loss = jnp.concatenate(losses).mean()
             logits = jnp.concatenate(all_logits)
@@ -96,6 +94,7 @@ def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encod
             )
             grads = jax.lax.pmean(grads, 'replication_axis')
             new_state = state.apply_gradients(grads=grads)
+
             return new_state, loss, accuracy
 
         loss, accuracy = loss_fn(state.params, key)

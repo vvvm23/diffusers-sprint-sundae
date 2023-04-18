@@ -37,11 +37,14 @@ def broadcat(tensors, axis=-1):
 
 # rotary embedding helper functions
 def rotate_half(x):
-    x = rearrange(x, "... (d r) -> ... d r", r=2)
-    x1, x2 = x[..., 0], x[..., 1]
+    # x = rearrange(x, "... (d r) -> ... d r", r=2)
+    # x1, x2 = x[..., 0], x[..., 1]
+    x1, x2 = jnp.split(x, 2, axis=-1)
 
-    x = jnp.stack((-x2, x1), axis=-1)
-    return rearrange(x, "... d r -> ... (d r)")
+    # x = jnp.stack((-x2, x1), axis=-1)
+    # return rearrange(x, "... d r -> ... (d r)")
+    return jnp.concatenate((-x2, x1), axis=-1)
+    # return x
 
 
 def apply_rotary_emb(freqs, t, start_index=0, scale=1.0):
