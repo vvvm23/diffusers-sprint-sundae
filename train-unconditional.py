@@ -170,12 +170,14 @@ def main(config, args):
                 f"[epoch {ei+1}] [eval] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
         
-        #print("sampling from current model")
-        #key, subkey = jax.random.split(key)
-        #sample = model.sample(subkey, num_samples=4, steps=100, temperature=0.7, proportion=0.4) # TODO: param this
-        #decoded_image = jax.jit(vqgan.decode_code)(sample)
-        #custom_to_pil(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c"), b1=2, b2=2).save(save_name / f'sample-{sample_count:04}.jpg')
-        #sample_count += 1
+        # TODO: pjit sample?
+        print("sampling from current model")
+        key, subkey = jax.random.split(key)
+        # TODO: param all this
+        sample = model.sample(subkey, num_samples=4, steps=100, temperature=0.7, proportion=0.4, early_stop=False, progress=False, return_history=False) # TODO: param this
+        decoded_image = jax.jit(vqgan.decode_code)(sample)
+        custom_to_pil(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c"), b1=2, b2=2).save(save_name / f'sample-{sample_count:04}.jpg')
+        sample_count += 1
 
 
 if __name__ == "__main__":
