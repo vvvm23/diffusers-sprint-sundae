@@ -82,6 +82,7 @@ def main(config, args):
         all_imgs = []
         for t, f in enumerate(samples):
             imgs = vqgan.decode_code(f) # TODO: merge batch and time dimension and encode in one go!
+            # TODO: make_grid, not separate file
             for i, img in enumerate(imgs):
                 custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i:02}_{t:03}.png")
     else:

@@ -450,6 +450,7 @@ class SundaeModel(nn.Module):
         )(x, context=context, mask=mask)
 
     # TODO: jit loop
+    # TODO: this might be better to be a fn not a class method, easier to pjit/jit, pass random params, etc.
     def sample(self, 
         key: jax.random.PRNGKey,
         x: Optional[ArrayLike] = None,

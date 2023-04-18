@@ -29,6 +29,7 @@ from vqgan_jax.utils import custom_to_pil
 
 from train_utils import build_train_step, create_train_state
 from utils import dict_to_namespace
+from sundae.model import SundaeModel
 
 # Hatman: added imports for wandb, argparse, and bunch
 import wandb
@@ -174,9 +175,11 @@ def main(config, args):
         print("sampling from current model")
         key, subkey = jax.random.split(key)
         # TODO: param all this
-        sample = model.sample(subkey, num_samples=4, steps=100, temperature=0.7, proportion=0.4, early_stop=False, progress=False, return_history=False) # TODO: param this
+        sample_model = SundaeModel(config.model)
+        sample_model.params = flax.jax_utils.unreplicate(state).params # TODO: do we need to unreplicate all? or just params?
+        sample = sample_model.sample(subkey, num_samples=4, steps=100, temperature=0.7, proportion=0.4, early_stop=False, progress=False, return_history=False) # TODO: param this
         decoded_image = jax.jit(vqgan.decode_code)(sample)
-        custom_to_pil(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c"), b1=2, b2=2).save(save_name / f'sample-{sample_count:04}.jpg')
+        custom_to_pil(np.asarray(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2))).save(Path(save_name) / f'sample-{sample_count:04}.jpg')
         sample_count += 1
 
 
@@ -228,24 +231,24 @@ if __name__ == "__main__":
             # depth=[1,1,1],
             shorten_factor=4,
             resample_type="linear",
-            heads=2,
+            heads=8,
             dim_head=64,
             # dim_head=8,
             rotary_emb_dim=32,
             # rotary_emb_dim=4,
             max_seq_len=32, # effectively squared to 256
             # max_seq_len=4, # effectively squared to 256
-            parallel_block=True,
+            parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
             learning_rate = 3e-4,
-            unroll_steps=2,
+            unroll_steps=3,
             epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
             weight_decay=1e-2,
-            temperature=0.0
+            temperature=0.8
         ),
         vqgan=dict(name="vq-f8-n256", dtype=jnp.bfloat16),
         jit_enabled=True, # TODO: remove, pmap will already jit function
