@@ -59,68 +59,36 @@ def main(config, args):
 
     sample_dir = setup_sample_dir()
 
-    print(f"Restoring model from {args.checkpoint}")
-    ckptr = orbax.checkpoint.Checkpointer(orbax.checkpoint.PyTreeCheckpointHandler())
-    params = ckptr.restore(args.checkpoint, item=None)['params']
-
     model = SundaeModel(config.model)
 
-    key, subkey = jax.random.split(key)
-    sample = jax.random.randint(
-        subkey,
-        (args.batch_size, config.model.max_seq_len * config.model.max_seq_len),
-        0,
-        config.model.num_tokens,
-        dtype=jnp.int32,
-    )
-
-    #@jax.jit
-    def jit_sample(sample, key):
-        logits = model.apply({"params": params}, sample)
-
+    if args.checkpoint:
+        print(f"Restoring model from {args.checkpoint}")
+        ckptr = orbax.checkpoint.Checkpointer(orbax.checkpoint.PyTreeCheckpointHandler())
+        params = ckptr.restore(args.checkpoint, item=None)['params']
+    else:
         key, subkey = jax.random.split(key)
-        # new_sample = logits.argmax(axis=-1)
-        new_sample = jax.random.categorical(
-            subkey, logits / args.sample_temperature, axis=-1
-        )
+        params = model.init(subkey, jnp.zeros((1, config.model.max_seq_len*config.model.max_seq_len), dtype=jnp.int32))['params']
 
-        # approx x% of mask will be False (aka where to update)
-        mask = jax.random.uniform(key, new_sample.shape) > args.sample_proportion
-
-        # where True (aka, where to fix) copy from original sample
-        # new_sample[mask] = sample[mask]
-        # new_sample = new_sample.at[mask].set(sample.at[mask]) # <~~ no bueno!
-        new_sample = mask * sample + ~mask * new_sample # JIT-compile must have static shape, hence this monstrosity
-
-        return new_sample
-
-    print("Beginning sampling loop")
-    history = []
-    # TODO: jit loop properly. don't naively jit loop as compile time will scale with sample steps
-    for i in tqdm.trange(args.sample_steps):
-        key, subkey = jax.random.split(key)
-        new_sample = jit_sample(sample, subkey)
-
-        if jnp.all(new_sample == sample):
-            print(f"No change during sampling step {i}. Terminating.")
-            break
-
-        # now copy back to original sample to update
-        sample = new_sample
-        if args.history:
-            history.append(sample)
+    model.params = params
+    samples = model.sample(key=key, num_samples=args.batch_size,
+                           steps=args.steps, temperature=args.temperature,
+                           min_steps=args.min_steps,
+                           proportion=args.proportion,
+                           return_history=args.history,
+                           progress=True,
+                           early_stop=not args.no_early_stop)
 
     if args.history:
         all_imgs = []
-        for t, f in enumerate(history):
-            for i, s in enumerate(f):
-                img = vqgan.decode_code(s)[0]
-                custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i}_{j}.png")
+        for t, f in enumerate(samples):
+            imgs = vqgan.decode_code(f) # TODO: merge batch and time dimension and encode in one go!
+            for i, img in enumerate(imgs):
+                custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i:02}_{t:03}.png")
     else:
-        decoded_samples = vqgan.decode_code(sample)
+        decoded_samples = vqgan.decode_code(samples)
 
         for i, img in enumerate(decoded_samples):
-            custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i}.png")
+            custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i:02}.png")
 
 if __name__ == "__main__":
     # TODO: add proper argparsing!: Hatman
@@ -130,10 +98,12 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--seed", type=int, default=0xFFFF)
     parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--sample-steps", type=int, default=100)
-    parser.add_argument("--sample-temperature", type=float, default=0.6)
-    parser.add_argument("--sample-proportion", type=float, default=0.3)
+    parser.add_argument("--min-steps", type=int, default=100)
+    parser.add_argument("--steps", "-n", type=int, default=100)
+    parser.add_argument("--temperature", "-t", type=float, default=0.6)
+    parser.add_argument("--proportion", "-p", type=float, default=0.3)
     parser.add_argument("--history", action='store_true')
+    parser.add_argument("--no-early-stop", action='store_true')
     args = parser.parse_args()
 
     config = dict(

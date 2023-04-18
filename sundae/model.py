@@ -9,6 +9,7 @@ from typing import Callable, Optional, Sequence, Union, Literal
 
 import einops
 from math import sqrt
+import tqdm
 
 from sundae.rotary_embeddings import broadcat, generate_embeddings, apply_rotary_emb
 
@@ -455,37 +456,44 @@ class SundaeModel(nn.Module):
         context: Optional[ArrayLike] = None, 
         num_samples: int = 4,
         steps: int = 100, 
+        min_steps: int = 10,
         temperature: float = 1.0, 
         proportion: float = 0.5,
         return_history: bool = False,
+        progress: bool = False,
+        early_stop: bool = True,
     ):
+        # TODO: this is kinda ugly here, but it'll do for now :/
+        # TODO: also doesn't support temp=0 sampling
+        # TODO: ALSO doesn't support changing temp and prop values (I think? Might trigger recompile, haven't tested)
+        @jax.jit
+        def sample_step(sample: ArrayLike, key: jax.random.PRNGKey, context: Optional[ArrayLike] = None, temperature: float = 1.0, proportion: float = 0.5):
+            key, subkey = jax.random.split(key)
+            logits = self.apply({'params': self.params}, sample, context=context)
+            new_sample = jax.random.categorical(subkey, logits / temperature, axis=-1)
+            mask = jax.random.uniform(key, new_sample.shape) > proportion
+            new_sample = mask * sample + ~mask * new_sample 
+
+            return new_sample
+
         if x is None:
             key, subkey = jax.random.split(key)
-            x = jnp.random.randint(subkey, (num_samples, self.config.max_seq_len*self.config.max_seq_len), 0, self.config.num_tokens, dtype=np.int32)
+            x = jax.random.randint(subkey, (num_samples, self.config.max_seq_len*self.config.max_seq_len), 0, self.config.num_tokens, dtype=jnp.int32)
         history = []
-        for i in range(steps):
+        for i in tqdm.trange(steps, disable=not progress):
             key, subkey = jax.random.split(key)
-            new_sample = self.sample_step(sample, subkey, context=context, temperature=temperature, proportion=proportion) # TODO: pass as array if scheduling later
-            if jnp.all(new_sample == sample): # TODO: can we move this check into jit? also add flag
+            new_sample = sample_step(x, subkey, context=context, temperature=temperature, proportion=proportion) # TODO: pass as array if scheduling later
+            if early_stop and i > min_steps and jnp.all(new_sample == x): # TODO: can we move this check into jit? also add flag
                 break
-            sample = new_sample
+            x = new_sample
 
             if return_history:
-                history.append(sample)
+                history.append(new_sample)
 
         if return_history:
             return history
-        return sample
+        return x
 
-    @jax.jit
-    def sample_step(self, sample: ArrayLike, key: jax.random.PRNGKey, context: Optional[ArrayLike] = None, temperature: float = 1.0, proportion: float = 0.5):
-        key, subkey = jax.random.split(key)
-        logits = self.apply({'params': self.params}, sample, context=context)
-        new_sample = jax.random.categorical(subkey, logits / temperature, axis=-1)
-        mask = jax.random.uniform(key, new_sample.shape) > proportion
-        new_sample = mask * sample + ~mask * new_sample 
-
-        return new_sample
 
 
 if __name__ == "__main__":
