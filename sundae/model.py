@@ -465,7 +465,7 @@ class SundaeModel(nn.Module):
         history = []
         for i in range(steps):
             key, subkey = jax.random.split(key)
-            new_sample = jit_sample(sample, subkey, context=context, temperature=temperature, proportion=proportion) #  TODO: pass as array if scheduling later
+            new_sample = self.sample_step(sample, subkey, context=context, temperature=temperature, proportion=proportion) # TODO: pass as array if scheduling later
             if jnp.all(new_sample == sample): # TODO: can we move this check into jit? also add flag
                 break
             sample = new_sample
@@ -480,7 +480,7 @@ class SundaeModel(nn.Module):
     @jax.jit
     def sample_step(self, sample: ArrayLike, key: jax.random.PRNGKey, context: Optional[ArrayLike] = None, temperature: float = 1.0, proportion: float = 0.5):
         key, subkey = jax.random.split(key)
-        logits = self(sample, context=context)
+        logits = self.apply({'params': self.params}, sample, context=context)
         new_sample = jax.random.categorical(subkey, logits / temperature, axis=-1)
         mask = jax.random.uniform(key, new_sample.shape) > proportion
         new_sample = mask * sample + ~mask * new_sample 

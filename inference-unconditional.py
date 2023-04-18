@@ -77,7 +77,6 @@ def main(config, args):
     #@jax.jit
     def jit_sample(sample, key):
         logits = model.apply({"params": params}, sample)
-        print(logits)
 
         key, subkey = jax.random.split(key)
         # new_sample = logits.argmax(axis=-1)
@@ -129,9 +128,6 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument("--checkpoint", type=str, default=None)
-    parser.add_argument(
-        "--checkpoint-step", type=int, default=None, help="`None` loads latest."
-    ) # TODO: remove
     parser.add_argument("--seed", type=int, default=0xFFFF)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--sample-steps", type=int, default=100)
@@ -142,20 +138,26 @@ if __name__ == "__main__":
 
     config = dict(
         model=dict(
-            num_tokens=16384,
+            num_tokens=256,
+            # num_tokens=10,
             dim=1024,
-            depth=[3, 10, 3],
-            shorten_factor=2,
+            # dim=32,
+            depth=[2, 12, 2],
+            # depth=[1,1,1],
+            shorten_factor=4,
             resample_type="linear",
-            heads=8,
+            heads=2,
             dim_head=64,
+            # dim_head=8,
             rotary_emb_dim=32,
-            max_seq_len=16, # effectively squared to 256
+            # rotary_emb_dim=4,
+            max_seq_len=32, # effectively squared to 256
+            # max_seq_len=4, # effectively squared to 256
             parallel_block=True,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
-        vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
+        vqgan=dict(name="vq-f8-n256", dtype=jnp.bfloat16),
         jit_enabled=True,
     )
 
