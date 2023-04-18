@@ -187,7 +187,8 @@ if __name__ == "__main__":
             unroll_steps=3,
             epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
-            weight_decay=1e-2
+            weight_decay=1e-2,
+            temperature=0.5
         ),
         vqgan=dict(name="vq-f8-n256", dtype=jnp.float32),
         jit_enabled=True, # TODO: remove, pmap will already jit function
