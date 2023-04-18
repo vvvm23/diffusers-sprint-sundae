@@ -161,8 +161,10 @@ class Attention(nn.Module):
             jnp.where(~mask, mask_value, sim)  # TODO: check mask polarity is right
         # no need for causal mask, model is always non-causal
 
+        sim = jnp.array(sim, dtype=jnp.float32)
         attn = nn.softmax(sim, axis=-1)
         out = jnp.einsum("b h i j, b h j d -> b h i d", attn, v)
+        out = jnp.array(out, dtype=jnp.float32)
         out = einops.rearrange(out, "b h n d -> b n (h d)", h=h)
         out = Dense(x.shape[-1], use_bias=True)(out)
 
@@ -230,7 +232,7 @@ class Transformer(nn.Module):
 class HourglassTransformer(nn.Module):
     depth: Sequence[int]
     shorten_factor: Union[Sequence[int], int] = 2
-    attn_resampling: bool = True
+    attn_resampling: bool = True,
     resample_type: Literal["naive", "linear"] = "naive"
     heads: int = 8
     dim_head: int = 64
@@ -356,6 +358,7 @@ class HourglassTransformer(nn.Module):
         x = x + residual
 
         if exists(self.attn_resampling_post_valley):
+            # TODO; grads are zero at HourglassTransformer_0 attn_resampling_post_valley layers_0_0
             x = self.attn_resampling_post_valley(
                 einops.rearrange(x, "b (n s) d -> (b n) s d", s=s * s),
                 einops.rearrange(valley_out, "b n d -> (b n) () d"),
@@ -372,6 +375,7 @@ class HourglassTransformer(nn.Module):
         return x
 
 
+
 # `HourglassTransformer` with embedding layer and token head.
 # optionally tie weights
 class HourglassTransformerLM(nn.Module):
@@ -379,7 +383,7 @@ class HourglassTransformerLM(nn.Module):
     dim: int
     depth: Sequence[int]
     shorten_factor: Union[Sequence[int], int] = 2
-    attn_resampling: bool = True
+    attn_resampling: bool = True,
     resample_type: Literal["naive", "linear"] = "naive"
     heads: int = 8
     dim_head: int = 64
@@ -441,8 +445,47 @@ class SundaeModel(nn.Module):
             max_seq_len=config.max_seq_len,
             parallel_block=config.parallel_block,
             tied_embedding=config.tied_embedding,
-            attn_resampling=False
+            attn_resampling=True
         )(x, context=context, mask=mask)
+
+    # TODO: jit loop
+    def sample(self, 
+        key: jax.random.PRNGKey,
+        x: Optional[ArrayLike] = None,
+        context: Optional[ArrayLike] = None, 
+        num_samples: int = 4,
+        steps: int = 100, 
+        temperature: float = 1.0, 
+        proportion: float = 0.5,
+        return_history: bool = False,
+    ):
+        if x is None:
+            key, subkey = jax.random.split(key)
+            x = jnp.random.randint(subkey, (num_samples, self.config.max_seq_len*self.config.max_seq_len), 0, self.config.num_tokens, dtype=np.int32)
+        history = []
+        for i in range(steps):
+            key, subkey = jax.random.split(key)
+            new_sample = jit_sample(sample, subkey, context=context, temperature=temperature, proportion=proportion) #  TODO: pass as array if scheduling later
+            if jnp.all(new_sample == sample): # TODO: can we move this check into jit? also add flag
+                break
+            sample = new_sample
+
+            if return_history:
+                history.append(sample)
+
+        if return_history:
+            return history
+        return sample
+
+    @jax.jit
+    def sample_step(self, sample: ArrayLike, key: jax.random.PRNGKey, context: Optional[ArrayLike] = None, temperature: float = 1.0, proportion: float = 0.5):
+        key, subkey = jax.random.split(key)
+        logits = self(sample, context=context)
+        new_sample = jax.random.categorical(subkey, logits / temperature, axis=-1)
+        mask = jax.random.uniform(key, new_sample.shape) > proportion
+        new_sample = mask * sample + ~mask * new_sample 
+
+        return new_sample
 
 
 if __name__ == "__main__":

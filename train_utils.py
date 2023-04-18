@@ -41,7 +41,7 @@ def create_train_state(key, config: dict):
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=opt)
 
 
-def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encoder: Optional[nn.Module] = None):
+def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encoder: Optional[nn.Module] = None, train: bool = True):
     def train_step(state, x: ArrayLike, key: jax.random.PRNGKey, conditioning: Optional[ArrayLike] = None):
         model = SundaeModel(config.model)
         # if vqgan exists, assume passing image in, so should permute dims and encode.
@@ -49,7 +49,9 @@ def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encod
         if vqgan is not None: 
             x = einops.rearrange(x, "n c h w -> n h w c")
             x = preprocess_vqgan(x)
+            x = jnp.asarray(x, dtype=jnp.int32)
             _, x = vqgan.encode(x)
+            x_copy = x.copy()
 
         assert (conditioning is None) == (text_encoder is None)
 
@@ -88,13 +90,17 @@ def build_train_step(config: dict, vqgan: Optional[nn.Module] = None, text_encod
 
             return total_loss, 100.0 * total_accuracy
 
-        (loss, accuracy), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-            state.params, key
-        )
-        grads = jax.lax.pmean(grads, 'replication_axis')
-        new_state = state.apply_gradients(grads=grads)
+        if train:
+            (loss, accuracy), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+                state.params, key
+            )
+            grads = jax.lax.pmean(grads, 'replication_axis')
+            new_state = state.apply_gradients(grads=grads)
+            return new_state, loss, accuracy
 
-        return new_state, loss, accuracy
+        loss, accuracy = loss_fn(state.params, key)
+        return loss, accuracy
+
 
     # if config.jit_enabled: # we pmap by default so this does nothing now
     #     return jax.jit(train_step)
