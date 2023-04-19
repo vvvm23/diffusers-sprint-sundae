@@ -92,10 +92,14 @@ def main(config, args):
     # TODO: wandb logging plz: Hatman
     # TODO: need flag to toggle on and off otherwise we will pollute project
     # wandb.init(project="diffusers-sprint-sundae", config=config)
-    
+
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(keep_period=10, max_to_keep=2, create=True)
-    checkpoint_manager = orbax.checkpoint.CheckpointManager(save_name, orbax_checkpointer, checkpoint_opts)
+    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
+        keep_period=10, max_to_keep=2, create=True
+    )
+    checkpoint_manager = orbax.checkpoint.CheckpointManager(
+        save_name, orbax_checkpointer, checkpoint_opts
+    )
     save_args = orbax_utils.save_args_from_target(state)
 
     log_interval = 64
@@ -106,27 +110,35 @@ def main(config, args):
         wandb_metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.tqdm(loader)
         for i, (batch, _) in enumerate(pb):
-            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor)
+            batch = einops.rearrange(
+                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor
+            )
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, 0))(state, batch, subkeys) # TODO: add donate args, memory save on params
+            state, loss, accuracy = jax.pmap(
+                train_step, "replication_axis", in_axes=(0, 0, 0)
+            )(
+                state, batch, subkeys
+            )  # TODO: add donate args, memory save on params
 
             loss, accuracy = loss.mean(), accuracy.mean()
             total_loss += loss
             total_accuracy += accuracy
 
-            wandb_metrics['loss'] += loss
-            wandb_metrics['accuracy'] += accuracy
+            wandb_metrics["loss"] += loss
+            wandb_metrics["accuracy"] += accuracy
 
             pb.set_description(
                 f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
             if i % log_interval == 0:
-                wandb_metrics['loss'] /= log_interval
-                wandb_metrics['accuracy'] /= log_interval
-                #wandb.log(wandb_metrics)
+                wandb_metrics["loss"] /= log_interval
+                wandb_metrics["accuracy"] /= log_interval
+                # wandb.log(wandb_metrics)
 
-        checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
+        checkpoint_manager.save(
+            ei, flax.jax_utils.unreplicate(state), save_kwargs={"save_args": save_args}
+        )
 
 
 if __name__ == "__main__":
@@ -177,24 +189,26 @@ if __name__ == "__main__":
             heads=8,
             dim_head=64,
             rotary_emb_dim=32,
-            max_seq_len=32, # effectively squared to 256
+            max_seq_len=32,  # effectively squared to 256
             parallel_block=False,
             tied_embedding=False,
-            dtype=jnp.bfloat16, # currently no effect
+            dtype=jnp.bfloat16,  # currently no effect
         ),
         training=dict(
-            learning_rate = 4e-4,
+            learning_rate=4e-4,
             unroll_steps=2,
             epochs=100,  # TODO: maybe replace with train steps
             max_grad_norm=1.0,
-            weight_decay=1e-2
+            weight_decay=1e-2,
         ),
         vqgan=dict(name="vq-f8-n256", dtype=jnp.float32),
         jit_enabled=True,
     )
 
     # Hatman: To eliminate dict_to_namespace
-    args = Bunch(dict(seed=42)) # if you are changing the seed to get good results, may god help you.
+    args = Bunch(
+        dict(seed=42)
+    )  # if you are changing the seed to get good results, may god help you.
     # args = dict_to_namespace()
 
     main(dict_to_namespace(config), args)

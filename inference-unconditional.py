@@ -63,33 +63,50 @@ def main(config, args):
 
     if args.checkpoint:
         print(f"Restoring model from {args.checkpoint}")
-        ckptr = orbax.checkpoint.Checkpointer(orbax.checkpoint.PyTreeCheckpointHandler())
-        params = ckptr.restore(args.checkpoint, item=None)['params']
+        ckptr = orbax.checkpoint.Checkpointer(
+            orbax.checkpoint.PyTreeCheckpointHandler()
+        )
+        params = ckptr.restore(args.checkpoint, item=None)["params"]
     else:
         key, subkey = jax.random.split(key)
-        params = model.init(subkey, jnp.zeros((1, config.model.max_seq_len*config.model.max_seq_len), dtype=jnp.int32))['params']
+        params = model.init(
+            subkey,
+            jnp.zeros(
+                (1, config.model.max_seq_len * config.model.max_seq_len),
+                dtype=jnp.int32,
+            ),
+        )["params"]
 
     model.params = params
-    samples = model.sample(key=key, num_samples=args.batch_size,
-                           steps=args.steps, temperature=args.temperature,
-                           min_steps=args.min_steps,
-                           proportion=args.proportion,
-                           return_history=args.history,
-                           progress=True,
-                           early_stop=not args.no_early_stop)
+    samples = model.sample(
+        key=key,
+        num_samples=args.batch_size,
+        steps=args.steps,
+        temperature=args.temperature,
+        min_steps=args.min_steps,
+        proportion=args.proportion,
+        return_history=args.history,
+        progress=True,
+        early_stop=not args.no_early_stop,
+    )
 
     if args.history:
         all_imgs = []
         for t, f in enumerate(samples):
-            imgs = vqgan.decode_code(f) # TODO: merge batch and time dimension and encode in one go!
+            imgs = vqgan.decode_code(
+                f
+            )  # TODO: merge batch and time dimension and encode in one go!
             # TODO: make_grid, not separate file
             for i, img in enumerate(imgs):
-                custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i:02}_{t:03}.png")
+                custom_to_pil(np.asarray(img)).save(
+                    sample_dir / f"sample-{i:02}_{t:03}.png"
+                )
     else:
         decoded_samples = vqgan.decode_code(samples)
 
         for i, img in enumerate(decoded_samples):
             custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i:02}.png")
+
 
 if __name__ == "__main__":
     # TODO: add proper argparsing!: Hatman
@@ -103,8 +120,8 @@ if __name__ == "__main__":
     parser.add_argument("--steps", "-n", type=int, default=100)
     parser.add_argument("--temperature", "-t", type=float, default=0.6)
     parser.add_argument("--proportion", "-p", type=float, default=0.3)
-    parser.add_argument("--history", action='store_true')
-    parser.add_argument("--no-early-stop", action='store_true')
+    parser.add_argument("--history", action="store_true")
+    parser.add_argument("--no-early-stop", action="store_true")
     args = parser.parse_args()
 
     config = dict(
@@ -122,11 +139,11 @@ if __name__ == "__main__":
             # dim_head=8,
             rotary_emb_dim=32,
             # rotary_emb_dim=4,
-            max_seq_len=32, # effectively squared to 256
+            max_seq_len=32,  # effectively squared to 256
             # max_seq_len=4, # effectively squared to 256
             parallel_block=True,
             tied_embedding=False,
-            dtype=jnp.bfloat16, # currently no effect
+            dtype=jnp.bfloat16,  # currently no effect
         ),
         vqgan=dict(name="vq-f8-n256", dtype=jnp.bfloat16),
         jit_enabled=True,

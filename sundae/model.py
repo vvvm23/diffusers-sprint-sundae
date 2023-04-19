@@ -13,20 +13,29 @@ import tqdm
 
 from sundae.rotary_embeddings import broadcat, generate_embeddings, apply_rotary_emb
 
+
 def exists(val):
     return val is not None
 
+
 def Dense(dim, *args, **kwargs):
     dtype = jnp.bfloat16
-    layer = nn.Dense(dim, *args, **kwargs, dtype=dtype, param_dtype=dtype, 
+    layer = nn.Dense(
+        dim,
+        *args,
+        **kwargs,
+        dtype=dtype,
+        param_dtype=dtype,
         kernel_init=nn.initializers.he_uniform(),
-        bias_init=nn.initializers.uniform(1 / sqrt(dim)) # lecun_uniform 
+        bias_init=nn.initializers.uniform(1 / sqrt(dim)),  # lecun_uniform
     )
     return layer
+
 
 def LayerNorm(*args, **kwargs):
     layer = nn.LayerNorm(*args, **kwargs, dtype=jnp.float32, param_dtype=jnp.float32)
     return layer
+
 
 # resample functions
 class NaiveDownsample(nn.Module):
@@ -137,9 +146,7 @@ class Attention(nn.Module):
         scale = self.dim_head**-0.5
 
         q = Dense(dim, use_bias=False)(x)
-        kv = Dense(2 * dim, use_bias=False)(
-            context if has_context else x
-        )
+        kv = Dense(2 * dim, use_bias=False)(context if has_context else x)
         k, v = jnp.split(kv, 2, axis=-1)
 
         if pos_emb is not None and not has_context:
@@ -218,9 +225,23 @@ class Transformer(nn.Module):
 
         for i, (attn, ff) in enumerate(self.layers):
             if self.parallel_block:  # gpt-j style arrangement
-                x = attn(x, context=context if (i % self.cross_attention_period == 0) else None, pos_emb=rot_emb, mask=mask) + ff(x)
+                x = attn(
+                    x,
+                    context=context if (i % self.cross_attention_period == 0) else None,
+                    pos_emb=rot_emb,
+                    mask=mask,
+                ) + ff(x)
             else:
-                x = ff(attn(x, context=context if (i % self.cross_attention_period == 0) else None, pos_emb=rot_emb, mask=mask))
+                x = ff(
+                    attn(
+                        x,
+                        context=context
+                        if (i % self.cross_attention_period == 0)
+                        else None,
+                        pos_emb=rot_emb,
+                        mask=mask,
+                    )
+                )
 
         if self.norm_out:
             x = self.norm(x)
@@ -233,7 +254,7 @@ class Transformer(nn.Module):
 class HourglassTransformer(nn.Module):
     depth: Sequence[int]
     shorten_factor: Union[Sequence[int], int] = 2
-    attn_resampling: bool = True,
+    attn_resampling: bool = (True,)
     resample_type: Literal["naive", "linear"] = "naive"
     heads: int = 8
     dim_head: int = 64
@@ -250,7 +271,7 @@ class HourglassTransformer(nn.Module):
 
         if isinstance(self.shorten_factor, (tuple, list)):
             shorten_factor, *rest_shorten_factor = self.shorten_factor
-        elif isinstance(valley_depth, int): 
+        elif isinstance(valley_depth, int):
             shorten_factor, rest_shorten_factor = self.shorten_factor, None
         else:
             shorten_factor, rest_shorten_factor = (
@@ -283,7 +304,7 @@ class HourglassTransformer(nn.Module):
             self.valley_transformer = Transformer(
                 depth=valley_depth,
                 max_seq_len=self.max_seq_len // shorten_factor,
-                **transformer_kwargs
+                **transformer_kwargs,
             )
         else:
             self.valley_transformer = HourglassTransformer(
@@ -292,24 +313,16 @@ class HourglassTransformer(nn.Module):
                 resample_type=self.resample_type,
                 shorten_factor=rest_shorten_factor,
                 attn_resampling=self.attn_resampling,
-                **transformer_kwargs
+                **transformer_kwargs,
             )
 
         self.attn_resampling_pre_valley = (
-            Transformer(
-                depth=1,
-                max_seq_len=self.max_seq_len,
-                **transformer_kwargs
-            )
+            Transformer(depth=1, max_seq_len=self.max_seq_len, **transformer_kwargs)
             if self.attn_resampling
             else None
         )
         self.attn_resampling_post_valley = (
-            Transformer(
-                depth=1,
-                max_seq_len=self.max_seq_len,
-                **transformer_kwargs
-            )
+            Transformer(depth=1, max_seq_len=self.max_seq_len, **transformer_kwargs)
             if self.attn_resampling
             else None
         )
@@ -323,7 +336,12 @@ class HourglassTransformer(nn.Module):
 
         self.norm = LayerNorm() if self.norm_out else None
 
-    def __call__(self, x: ArrayLike, context: Optional[ArrayLike] = None, mask: Optional[ArrayLike] = None):
+    def __call__(
+        self,
+        x: ArrayLike,
+        context: Optional[ArrayLike] = None,
+        mask: Optional[ArrayLike] = None,
+    ):
         s = self.shorten_factor
         b, n = x.shape[:2]
         x = self.pre_transformer(x, context=context, mask=mask)
@@ -376,7 +394,6 @@ class HourglassTransformer(nn.Module):
         return x
 
 
-
 # `HourglassTransformer` with embedding layer and token head.
 # optionally tie weights
 class HourglassTransformerLM(nn.Module):
@@ -384,7 +401,7 @@ class HourglassTransformerLM(nn.Module):
     dim: int
     depth: Sequence[int]
     shorten_factor: Union[Sequence[int], int] = 2
-    attn_resampling: bool = True,
+    attn_resampling: bool = (True,)
     resample_type: Literal["naive", "linear"] = "naive"
     heads: int = 8
     dim_head: int = 64
@@ -394,22 +411,33 @@ class HourglassTransformerLM(nn.Module):
     tied_embedding: bool = False
 
     @nn.compact
-    def __call__(self, x: ArrayLike, context: Optional[ArrayLike] = None, mask: Optional[ArrayLike] = None):
+    def __call__(
+        self,
+        x: ArrayLike,
+        context: Optional[ArrayLike] = None,
+        mask: Optional[ArrayLike] = None,
+    ):
         dtype = jnp.float32
         token_embedding = nn.Embed(
-            self.num_tokens, self.dim, dtype=dtype, embedding_init=nn.initializers.normal(stddev=1.0)
+            self.num_tokens,
+            self.dim,
+            dtype=dtype,
+            embedding_init=nn.initializers.normal(stddev=1.0),
         )
         x = token_embedding(x)
         if self.rotary_emb_dim is None:
             pos_emb = nn.Embed(
-                self.max_seq_len*self.max_seq_len, self.dim, dtype=dtype
+                self.max_seq_len * self.max_seq_len, self.dim, dtype=dtype
             )(jnp.arange(x.shape[1]))
             x = x + einops.rearrange(pos_emb, "n d -> () n d")
 
         # we apply traditional positional embeddings to context, as can't apply rotary when context is on
         if context is not None:
             context_pos_emb = nn.Embed(
-                context.shape[1], self.dim, dtype=dtype, embed_dtype=dtype,
+                context.shape[1],
+                self.dim,
+                dtype=dtype,
+                embed_dtype=dtype,
             )(jnp.arange(context.shape[1]))
             context = context + context_pos_emb
 
@@ -429,17 +457,25 @@ class HourglassTransformerLM(nn.Module):
         if self.tied_embedding:
             return token_embedding.attend(x)
 
-        return nn.Dense(self.num_tokens, dtype=jnp.float32,
+        return nn.Dense(
+            self.num_tokens,
+            dtype=jnp.float32,
             kernel_init=nn.initializers.he_uniform(),
-            bias_init=nn.initializers.uniform(1 / sqrt(self.num_tokens)))(x) 
-        #return nn.Dense(self.num_tokens, dtype=jnp.float32)(x)
+            bias_init=nn.initializers.uniform(1 / sqrt(self.num_tokens)),
+        )(x)
+        # return nn.Dense(self.num_tokens, dtype=jnp.float32)(x)
 
 
 class SundaeModel(nn.Module):
     config: dict
 
     @nn.compact
-    def __call__(self, x: ArrayLike, context: Optional[ArrayLike] = None, mask: Optional[ArrayLike] = None):
+    def __call__(
+        self,
+        x: ArrayLike,
+        context: Optional[ArrayLike] = None,
+        mask: Optional[ArrayLike] = None,
+    ):
         config = self.config
         return HourglassTransformerLM(
             num_tokens=config.num_tokens,
@@ -453,19 +489,20 @@ class SundaeModel(nn.Module):
             max_seq_len=config.max_seq_len,
             parallel_block=config.parallel_block,
             tied_embedding=config.tied_embedding,
-            attn_resampling=True
+            attn_resampling=True,
         )(x, context=context, mask=mask)
 
     # TODO: jit loop
     # TODO: this might be better to be a fn not a class method, easier to pjit/jit, pass random params, etc.
-    def sample(self, 
+    def sample(
+        self,
         key: jax.random.PRNGKey,
         x: Optional[ArrayLike] = None,
-        context: Optional[ArrayLike] = None, 
+        context: Optional[ArrayLike] = None,
         num_samples: int = 4,
-        steps: int = 100, 
+        steps: int = 100,
         min_steps: int = 10,
-        temperature: float = 1.0, 
+        temperature: float = 1.0,
         proportion: float = 0.5,
         return_history: bool = False,
         progress: bool = False,
@@ -475,23 +512,43 @@ class SundaeModel(nn.Module):
         # TODO: also doesn't support temp=0 sampling
         # TODO: ALSO doesn't support changing temp and prop values (I think? Might trigger recompile, haven't tested)
         @jax.jit
-        def sample_step(sample: ArrayLike, key: jax.random.PRNGKey, context: Optional[ArrayLike] = None, temperature: float = 1.0, proportion: float = 0.5):
+        def sample_step(
+            sample: ArrayLike,
+            key: jax.random.PRNGKey,
+            context: Optional[ArrayLike] = None,
+            temperature: float = 1.0,
+            proportion: float = 0.5,
+        ):
             key, subkey = jax.random.split(key)
-            logits = self.apply({'params': self.params}, sample, context=context)
+            logits = self.apply({"params": self.params}, sample, context=context)
             new_sample = jax.random.categorical(subkey, logits / temperature, axis=-1)
             mask = jax.random.uniform(key, new_sample.shape) > proportion
-            new_sample = mask * sample + ~mask * new_sample 
+            new_sample = mask * sample + ~mask * new_sample
 
             return new_sample
 
         if x is None:
             key, subkey = jax.random.split(key)
-            x = jax.random.randint(subkey, (num_samples, self.config.max_seq_len*self.config.max_seq_len), 0, self.config.num_tokens, dtype=jnp.int32)
+            x = jax.random.randint(
+                subkey,
+                (num_samples, self.config.max_seq_len * self.config.max_seq_len),
+                0,
+                self.config.num_tokens,
+                dtype=jnp.int32,
+            )
         history = []
         for i in tqdm.trange(steps, disable=not progress):
             key, subkey = jax.random.split(key)
-            new_sample = sample_step(x, subkey, context=context, temperature=temperature, proportion=proportion) # TODO: pass as array if scheduling later
-            if early_stop and i > min_steps and jnp.all(new_sample == x): # TODO: can we move this check into jit? also add flag
+            new_sample = sample_step(
+                x,
+                subkey,
+                context=context,
+                temperature=temperature,
+                proportion=proportion,
+            )  # TODO: pass as array if scheduling later
+            if (
+                early_stop and i > min_steps and jnp.all(new_sample == x)
+            ):  # TODO: can we move this check into jit? also add flag
                 break
             x = new_sample
 
@@ -501,7 +558,6 @@ class SundaeModel(nn.Module):
         if return_history:
             return history
         return x
-
 
 
 if __name__ == "__main__":
