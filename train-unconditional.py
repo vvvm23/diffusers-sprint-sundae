@@ -55,7 +55,6 @@ def get_data_loader(
     else:
         raise ValueError(f"unrecognised dataset name '{name}'")
 
-
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -64,6 +63,7 @@ def get_data_loader(
         shuffle=True,
     )
     return dataset, loader
+
 
 def main(config, args):
     print("Config:", config)
@@ -109,11 +109,12 @@ def main(config, args):
         wandb.init(project="diffusers-sprint-sundae", config=config)
     else:
         wandb.init(mode="disabled")
-    
-    
+
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
-        **config.checkpoint, create=True
+        keep_period=config.checkpoint.keep_period,
+        max_to_keep=config.checkpoint.max_to_keep,
+        create=True,
     )
     checkpoint_manager = orbax.checkpoint.CheckpointManager(
         save_name, orbax_checkpointer, checkpoint_opts
@@ -129,7 +130,9 @@ def main(config, args):
         pb = tqdm.trange(config.training.batches[0])
         for i in pb:
             batch, _ = next(train_iter)
-            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
+            batch = einops.rearrange(
+                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor, c=3
+            )
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
             state, loss, accuracy = pmap_train_step(
@@ -137,15 +140,24 @@ def main(config, args):
             )  # TODO: add donate args, memory save on params
             loss, accuracy = loss.mean(), accuracy.mean()
 
-            metrics['loss'] += loss
-            metrics['accuracy'] += accuracy
+            metrics["loss"] += loss
+            metrics["accuracy"] += accuracy
 
             pb.set_description(
                 f"[step {step+1:,}/{config.training.steps:,}] [train] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
             )
             step += 1
 
-        wandb.log({'train': {"loss": metrics["loss"] / (i+1), "accuracy": metrics["accuracy"] / (i+1)}}, commit=False, step=step)
+        wandb.log(
+            {
+                "train": {
+                    "loss": metrics["loss"] / (i + 1),
+                    "accuracy": metrics["accuracy"] / (i + 1),
+                }
+            },
+            commit=False,
+            step=step,
+        )
 
         checkpoint_manager.save(
             step,
@@ -157,21 +169,32 @@ def main(config, args):
         pb = tqdm.trange(config.training.batches[1])
         for i in pb:
             batch, _ = next(eval_iter)
-            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
+            batch = einops.rearrange(
+                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor, c=3
+            )
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
             loss, accuracy = pmap_eval_step(state, batch, subkeys)
 
             loss, accuracy = loss.mean(), accuracy.mean()
 
-            metrics['loss'] += loss
-            metrics['accuracy'] += accuracy
+            metrics["loss"] += loss
+            metrics["accuracy"] += accuracy
 
             pb.set_description(
                 f"[step {step+1:,}/{config.training.steps:,}] [eval] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
             )
-        
-        wandb.log({'eval': {"loss": metrics["loss"] / (i+1), "accuracy": metrics["accuracy"] / (i+1)}}, commit=False, step=step)
+
+        wandb.log(
+            {
+                "eval": {
+                    "loss": metrics["loss"] / (i + 1),
+                    "accuracy": metrics["accuracy"] / (i + 1),
+                }
+            },
+            commit=False,
+            step=step,
+        )
 
         # TODO: pjit sample?
         print("sampling from current model")
@@ -192,13 +215,19 @@ def main(config, args):
             return_history=False,
         )  # TODO: param this
         decoded_image = jax.jit(vqgan.decode_code)(sample)
-        img = custom_to_pil(np.asarray(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2)))
-        img.save(Path(save_name) / f'sample-{step:08}.jpg')
-        wandb.log({'sample': wandb.Image(img)}, commit=True, step=step)
+        img = custom_to_pil(
+            np.asarray(
+                einops.rearrange(
+                    decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2
+                )
+            )
+        )
+        img.save(Path(save_name) / f"sample-{step:08}.jpg")
+        wandb.log({"sample": wandb.Image(img)}, commit=True, step=step)
 
 
 if __name__ == "__main__":
-    # TODO: add proper argparsing!: 
+    # TODO: add proper argparsing!:
     # TODO: this sadly breaks some hierarchical config arguments :/ really we
     # need something like a yaml config loader or whatever format. Or use
     # SimpleParsing and we can have config files with arg overrides which are
@@ -234,12 +263,14 @@ if __name__ == "__main__":
             max_grad_norm=5.0,
             weight_decay=1e-2,
             temperature=0.5,
-            batches=(1000, 50)
+            batches=(1000, 50),
         ),
         checkpoint=dict(keep_period=50, max_to_keep=3),
         vqgan=dict(name="vq-f8", dtype=jnp.bfloat16),
     )
 
-    args = Bunch(dict(wandb=True, seed=42)) # if you are changing the seed to get good results, may god help you, hallelujah.
+    args = Bunch(
+        dict(wandb=True, seed=42)
+    )  # if you are changing the seed to get good results, may god help you, hallelujah.
 
     main(dict_to_namespace(config), args)
