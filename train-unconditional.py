@@ -70,15 +70,6 @@ def main(config, args):
     print("Config:", config)
     print("Args:", args)
 
-    # import jax
-    # from sundae import SundaeModel
-    # from jax import make_jaxpr
-    # x = jnp.zeros((1, config.model.max_seq_len*config.model.max_seq_len), dtype=jnp.int32)
-    # model = SundaeModel(config.model)
-    # params = model.init(jax.random.PRNGKey(0), x)['params']
-    # print(make_jaxpr(lambda t: model.apply({'params': params}, t))(x))
-    # exit()
-
     devices = jax.devices()
     print("JAX devices:", devices)
     replication_factor = len(devices)
@@ -121,10 +112,9 @@ def main(config, args):
     pmap_train_step = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, 'replication_axis', in_axes=(0, 0, 0))
 
-    log_interval = 64
-    sample_count = 0
-    from vqgan_jax.utils import custom_to_pil
-    for ei in range(config.training.epochs):
+    ei = 0
+    step = 0
+    while step < config.training.steps:
         total_loss = 0.0
         total_accuracy = 0.0
 
@@ -144,10 +134,12 @@ def main(config, args):
             wandb_metrics['accuracy'] += accuracy
 
             pb.set_description(
-                f"[epoch {ei+1}] [train] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
+                f"[step {step+1:,}/{config.training.steps}] [epoch {ei+1}] [train] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
+            step += 1
 
-        checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
+        ei += 1
+        checkpoint_manager.save(step, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
 
         # TODO: need to change these functions to not exhaust loader before going to next phase
         total_loss = 0.0
@@ -168,7 +160,7 @@ def main(config, args):
             wandb_metrics['accuracy'] += accuracy
 
             pb.set_description(
-                f"[epoch {ei+1}] [eval] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
+                f"[step {step+1}/{config.training.steps}] [epoch {ei+1}] [eval] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
         
         # TODO: pjit sample?
@@ -179,8 +171,7 @@ def main(config, args):
         sample_model.params = flax.jax_utils.unreplicate(state).params # TODO: do we need to unreplicate all? or just params?
         sample = sample_model.sample(subkey, num_samples=4, steps=100, temperature=0.7, proportion=0.4, early_stop=False, progress=False, return_history=False) # TODO: param this
         decoded_image = jax.jit(vqgan.decode_code)(sample)
-        custom_to_pil(np.asarray(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2))).save(Path(save_name) / f'sample-{sample_count:04}.jpg')
-        sample_count += 1
+        custom_to_pil(np.asarray(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2))).save(Path(save_name) / f'sample-{step:08}.jpg')
 
 
 if __name__ == "__main__":
@@ -243,9 +234,13 @@ if __name__ == "__main__":
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
-            learning_rate=3e-5,
+            learning_rate=1e-3,
+            end_learning_rate=1e-5,
+            warmup_start_lr=1e-6,
+            warmup_steps=1000,
             unroll_steps=3,
-            epochs=100, # TODO: maybe replace with train steps
+            steps=1_000_000,
+            # epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
             weight_decay=1e-2,
             temperature=1.0
