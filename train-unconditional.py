@@ -216,13 +216,13 @@ if __name__ == "__main__":
         model=dict(
             num_tokens=16384,
             # num_tokens=10,
-            dim=1024,
+            dim=2048,
             # dim=32,
             depth=[3, 16, 3],
             # depth=[1,1,1],
             shorten_factor=4,
             resample_type="linear",
-            heads=8,
+            heads=16,
             dim_head=128,
             # dim_head=8,
             rotary_emb_dim=64,
@@ -234,10 +234,10 @@ if __name__ == "__main__":
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
-            learning_rate=1e-3,
-            end_learning_rate=1e-5,
+            learning_rate=4e-4,
+            end_learning_rate=3e-6,
             warmup_start_lr=1e-6,
-            warmup_steps=1000,
+            warmup_steps=5000,
             unroll_steps=3,
             steps=1_000_000,
             # epochs=100, # TODO: maybe replace with train steps
