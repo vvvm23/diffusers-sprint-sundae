@@ -1,10 +1,10 @@
 import jax
-from jax import make_jaxpr
-from jax import numpy as jnp
+from jax import lax, numpy as jnp
+from jax.typing import ArrayLike
 
 import flax
 import flax.linen as nn
-from flax.training import orbax_utils
+from flax.training import train_state, checkpoints, orbax_utils
 import orbax.checkpoint
 
 import optax
@@ -14,9 +14,9 @@ from typing import Callable, Optional, Sequence, Union, Literal
 
 import numpy as np
 
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 import torchvision.transforms as T
-from torchvision.datasets import ImageFolder
+from torchvision.datasets import MNIST, ImageFolder
 
 import datetime
 from pathlib import Path
@@ -25,11 +25,10 @@ import tqdm
 
 import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
-from vqgan_jax.utils import custom_to_pil
 
+from sundae import SundaeModel
 from train_utils import build_train_step, create_train_state
 from utils import dict_to_namespace
-from sundae.model import SundaeModel
 
 # Hatman: added imports for wandb, argparse, and bunch
 import wandb
@@ -37,31 +36,25 @@ import argparse
 from bunch import Bunch
 
 
-# TODO: expand for whatever datasets we will use
-# TODO: auto train-valid split
+# TODO: unify data loading in a different file
+# TODO: text to image dataset
 def get_data_loader(
-    name: Literal["ffhq256"], batch_size: int = 1, num_workers: int = 0, train: bool = True
+    name: Literal["ffhq256"], batch_size: int = 1, num_workers: int = 0
 ):
     if name in ["ffhq256"]:
         dataset = ImageFolder(
             "data/ffhq256",
-            # transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
-            transform=T.Compose([T.ToTensor()]),
+            transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
         )
     else:
         raise ValueError(f"unrecognised dataset name '{name}'")
 
-    if train:
-        dataset = Subset(dataset, list(range(60_000)))
-    else:
-        dataset = Subset(dataset, list(range(60_000, 70_000)))
-
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
+        shuffle=True,
         drop_last=True,
         num_workers=num_workers,
-        shuffle=True
     )
     return dataset, loader
 
@@ -78,11 +71,8 @@ def main(config, args):
     print("Random seed:", args.seed)
 
     print(f"Loading dataset '{config.data.name}'")
-    _, train_loader = get_data_loader(
-        config.data.name, config.data.batch_size, config.data.num_workers, train=True
-    )
-    _, eval_loader = get_data_loader(
-        config.data.name, config.data.batch_size*2, config.data.num_workers, train=False
+    _, loader = get_data_loader(
+        config.data.name, config.data.batch_size, config.data.num_workers
     )
 
     print(f"Loading VQ-GAN")
@@ -92,13 +82,12 @@ def main(config, args):
 
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config)
+    state = flax.jax_utils.replicate(state)
 
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
     print(f"Saving checkpoints to directory {save_name}")
-    train_step = build_train_step(config, vqgan=vqgan, train=True)
-    eval_step = build_train_step(config, vqgan=vqgan, train=False)
-    state = flax.jax_utils.replicate(state)
+    train_step = build_train_step(config, vqgan)
 
     # TODO: wandb logging plz: Hatman
     # TODO: need flag to toggle on and off otherwise we will pollute project
@@ -109,23 +98,19 @@ def main(config, args):
     checkpoint_manager = orbax.checkpoint.CheckpointManager(save_name, orbax_checkpointer, checkpoint_opts)
     save_args = orbax_utils.save_args_from_target(state)
 
-    pmap_train_step = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, 0))
-    pmap_eval_step = jax.pmap(eval_step, 'replication_axis', in_axes=(0, 0, 0))
-
-    ei = 0
-    step = 0
-    while step < config.training.steps:
+    log_interval = 64
+    for ei in range(config.training.epochs):
         total_loss = 0.0
         total_accuracy = 0.0
 
         wandb_metrics = dict(loss=0.0, accuracy=0.0)
-        pb = tqdm.tqdm(train_loader)
-        # TODO: need to change these functions to not exhaust loader before going to next phase
+        pb = tqdm.tqdm(loader)
         for i, (batch, _) in enumerate(pb):
-            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
+            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = pmap_train_step(state, batch, subkeys) # TODO: add donate args, memory save on params
+            state, loss, accuracy = jax.pmap(train_step, 'replication_axis', in_axes=(0, 0, 0))(state, batch, subkeys) # TODO: add donate args, memory save on params
+
             loss, accuracy = loss.mean(), accuracy.mean()
             total_loss += loss
             total_accuracy += accuracy
@@ -134,44 +119,14 @@ def main(config, args):
             wandb_metrics['accuracy'] += accuracy
 
             pb.set_description(
-                f"[step {step+1:,}/{config.training.steps}] [epoch {ei+1}] [train] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
+                f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
             )
-            step += 1
+            if i % log_interval == 0:
+                wandb_metrics['loss'] /= log_interval
+                wandb_metrics['accuracy'] /= log_interval
+                #wandb.log(wandb_metrics)
 
-        ei += 1
-        checkpoint_manager.save(step, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
-
-        # TODO: need to change these functions to not exhaust loader before going to next phase
-        total_loss = 0.0
-        total_accuracy = 0.0
-        pb = tqdm.tqdm(eval_loader)
-        for i, (batch, _) in enumerate(pb):
-            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
-            key, subkey = jax.random.split(key)
-            subkeys = jax.random.split(subkey, replication_factor)
-            loss, accuracy = pmap_eval_step(state, batch, subkeys)
-
-            loss, accuracy = loss.mean(), accuracy.mean()
-            total_loss += loss
-            total_accuracy += accuracy
-
-            # TODO: need to separate out train and eval time metrics
-            wandb_metrics['loss'] += loss
-            wandb_metrics['accuracy'] += accuracy
-
-            pb.set_description(
-                f"[step {step+1}/{config.training.steps}] [epoch {ei+1}] [eval] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
-            )
-        
-        # TODO: pjit sample?
-        print("sampling from current model")
-        key, subkey = jax.random.split(key)
-        # TODO: param all this
-        sample_model = SundaeModel(config.model)
-        sample_model.params = flax.jax_utils.unreplicate(state).params # TODO: do we need to unreplicate all? or just params?
-        sample = sample_model.sample(subkey, num_samples=4, steps=100, temperature=0.7, proportion=0.4, early_stop=False, progress=False, return_history=False) # TODO: param this
-        decoded_image = jax.jit(vqgan.decode_code)(sample)
-        custom_to_pil(np.asarray(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2))).save(Path(save_name) / f'sample-{step:08}.jpg')
+        checkpoint_manager.save(ei, flax.jax_utils.unreplicate(state), save_kwargs={'save_args': save_args})
 
 
 if __name__ == "__main__":
@@ -210,43 +165,32 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=16,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=128,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(
-            num_tokens=16384,
-            # num_tokens=10,
-            dim=2048,
-            # dim=32,
-            depth=[3, 16, 3],
-            # depth=[1,1,1],
+            num_tokens=256,
+            dim=1024,
+            depth=[2, 12, 2],
             shorten_factor=4,
             resample_type="linear",
-            heads=16,
-            dim_head=128,
-            # dim_head=8,
-            rotary_emb_dim=64,
-            # rotary_emb_dim=4,
+            heads=8,
+            dim_head=64,
+            rotary_emb_dim=32,
             max_seq_len=32, # effectively squared to 256
-            # max_seq_len=4, # effectively squared to 256
             parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
-            learning_rate=4e-4,
-            end_learning_rate=3e-6,
-            warmup_start_lr=1e-6,
-            warmup_steps=5000,
-            unroll_steps=3,
-            steps=1_000_000,
-            # epochs=100, # TODO: maybe replace with train steps
-            max_grad_norm=5.0,
-            weight_decay=1e-2,
-            temperature=1.0
+            learning_rate = 4e-4,
+            unroll_steps=2,
+            epochs=100,  # TODO: maybe replace with train steps
+            max_grad_norm=1.0,
+            weight_decay=1e-2
         ),
-        vqgan=dict(name="vq-f8", dtype=jnp.bfloat16),
-        jit_enabled=True, # TODO: remove, pmap will already jit function
+        vqgan=dict(name="vq-f8-n256", dtype=jnp.float32),
+        jit_enabled=True,
     )
 
     # Hatman: To eliminate dict_to_namespace

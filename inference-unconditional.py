@@ -1,6 +1,7 @@
 import jax
 from jax import lax, numpy as jnp
 from jax.typing import ArrayLike
+from jax import make_jaxpr
 
 import flax
 import flax.linen as nn
@@ -58,58 +59,37 @@ def main(config, args):
 
     sample_dir = setup_sample_dir()
 
-    print(f"Restoring model from {args.checkpoint}")
-    # params = checkpoints.restore_checkpoint(
-        # ckpt_dir=args.checkpoint, target=None, step=args.checkpoint_step
-    # )['params']
-    ckptr = orbax.checkpoint.Checkpointer(orbax.checkpoint.PyTreeCheckpointHandler())
-    params = ckptr.restore(args.checkpoint, item=None)['params']
-
     model = SundaeModel(config.model)
 
-    key, subkey = jax.random.split(key)
-    sample = jax.random.randint(
-        subkey,
-        (args.batch_size, config.model.max_seq_len * config.model.max_seq_len),
-        0,
-        config.model.num_tokens,
-        dtype=jnp.int32,
-    )
-
-    print("Beginning sampling loop")
-    # TODO: jit loop properly. don't naively jit loop as compile time will scale with sample steps
-    for i in tqdm.trange(args.sample_steps):
-        logits = model.apply({"params": params}, sample)
-
+    if args.checkpoint:
+        print(f"Restoring model from {args.checkpoint}")
+        ckptr = orbax.checkpoint.Checkpointer(orbax.checkpoint.PyTreeCheckpointHandler())
+        params = ckptr.restore(args.checkpoint, item=None)['params']
+    else:
         key, subkey = jax.random.split(key)
-        new_sample = jax.random.categorical(
-            subkey, logits / args.sample_temperature, axis=-1
-        )
+        params = model.init(subkey, jnp.zeros((1, config.model.max_seq_len*config.model.max_seq_len), dtype=jnp.int32))['params']
 
-        key, subkey = jax.random.split(key)
+    model.params = params
+    samples = model.sample(key=key, num_samples=args.batch_size,
+                           steps=args.steps, temperature=args.temperature,
+                           min_steps=args.min_steps,
+                           proportion=args.proportion,
+                           return_history=args.history,
+                           progress=True,
+                           early_stop=not args.no_early_stop)
 
-        # approx x% of mask will be False (aka where to update)
-        mask = jax.random.uniform(subkey, new_sample.shape) > args.sample_proportion
+    if args.history:
+        all_imgs = []
+        for t, f in enumerate(samples):
+            imgs = vqgan.decode_code(f) # TODO: merge batch and time dimension and encode in one go!
+            # TODO: make_grid, not separate file
+            for i, img in enumerate(imgs):
+                custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i:02}_{t:03}.png")
+    else:
+        decoded_samples = vqgan.decode_code(samples)
 
-        # where True (aka, where to fix) copy from original sample
-        # new_sample[mask] = sample[mask]
-        # new_sample = new_sample.at[mask].set(sample.at[mask]) # <~~ no bueno!
-        new_sample = mask * sample + ~mask * new_sample # JIT-compile must have static shape, hence this monstrosity
-
-        if jnp.all(new_sample == sample):
-            print(f"No change during sampling step {i}. Terminating.")
-            break
-
-        # now copy back to original sample to update
-        sample = new_sample
-
-    print("Decoding latents with VQGAN")
-    decoded_samples = vqgan.decode_code(sample)
-
-    print(f"Saving to {sample_dir.as_posix()}")
-    for i, img in enumerate(decoded_samples):
-        custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i}.png")
-
+        for i, img in enumerate(decoded_samples):
+            custom_to_pil(np.asarray(img)).save(sample_dir / f"sample-{i:02}.png")
 
 if __name__ == "__main__":
     # TODO: add proper argparsing!: Hatman
@@ -117,32 +97,38 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument("--checkpoint", type=str, default=None)
-    parser.add_argument(
-        "--checkpoint-step", type=int, default=None, help="`None` loads latest."
-    ) # TODO: remove
     parser.add_argument("--seed", type=int, default=0xFFFF)
     parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--sample-steps", type=int, default=100)
-    parser.add_argument("--sample-temperature", type=float, default=0.6)
-    parser.add_argument("--sample-proportion", type=float, default=0.3)
+    parser.add_argument("--min-steps", type=int, default=100)
+    parser.add_argument("--steps", "-n", type=int, default=100)
+    parser.add_argument("--temperature", "-t", type=float, default=0.6)
+    parser.add_argument("--proportion", "-p", type=float, default=0.3)
+    parser.add_argument("--history", action='store_true')
+    parser.add_argument("--no-early-stop", action='store_true')
     args = parser.parse_args()
 
     config = dict(
         model=dict(
-            num_tokens=16_384,
+            num_tokens=256,
+            # num_tokens=10,
             dim=1024,
-            depth=[2, 10, 2],
+            # dim=32,
+            depth=[2, 12, 2],
+            # depth=[1,1,1],
             shorten_factor=4,
             resample_type="linear",
-            heads=8,
+            heads=2,
             dim_head=64,
-            rotary_emb_dim=None,
-            max_seq_len=16, # effectively squared to 256
-            parallel_block=False,
+            # dim_head=8,
+            rotary_emb_dim=32,
+            # rotary_emb_dim=4,
+            max_seq_len=32, # effectively squared to 256
+            # max_seq_len=4, # effectively squared to 256
+            parallel_block=True,
             tied_embedding=False,
             dtype=jnp.bfloat16, # currently no effect
         ),
-        vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
+        vqgan=dict(name="vq-f8-n256", dtype=jnp.bfloat16),
         jit_enabled=True,
     )
 
