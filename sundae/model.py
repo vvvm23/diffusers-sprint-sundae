@@ -460,8 +460,6 @@ class HourglassTransformerLM(nn.Module):
         return nn.Dense(
             self.num_tokens,
             dtype=jnp.float32,
-            kernel_init=nn.initializers.he_uniform(),
-            bias_init=nn.initializers.uniform(1 / sqrt(self.num_tokens)),
         )(x)
         # return nn.Dense(self.num_tokens, dtype=jnp.float32)(x)
 

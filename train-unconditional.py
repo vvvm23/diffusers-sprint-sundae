@@ -31,13 +31,11 @@ from train_utils import build_train_step, create_train_state
 from utils import dict_to_namespace, infinite_loader
 from sundae.model import SundaeModel
 
-# Hatman: added imports for wandb, argparse, and bunch
 import wandb
 from bunch import Bunch
 
 
 # TODO: expand for whatever datasets we will use
-# TODO: auto train-valid split
 def get_data_loader(
     name: Literal["ffhq256"],
     batch_size: int = 1,
@@ -50,13 +48,13 @@ def get_data_loader(
             # transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
             transform=T.Compose([T.ToTensor()]),
         )
+        if train:
+            dataset = Subset(dataset, list(range(60_000)))
+        else:
+            dataset = Subset(dataset, list(range(60_000, 70_000)))
     else:
         raise ValueError(f"unrecognised dataset name '{name}'")
 
-    if train:
-        dataset = Subset(dataset, list(range(60_000)))
-    else:
-        dataset = Subset(dataset, list(range(60_000, 70_000)))
 
     loader = DataLoader(
         dataset,
@@ -115,7 +113,7 @@ def main(config, args):
     
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
-        keep_period=10, max_to_keep=2, create=True
+        **config.checkpoint, create=True
     )
     checkpoint_manager = orbax.checkpoint.CheckpointManager(
         save_name, orbax_checkpointer, checkpoint_opts
@@ -125,13 +123,12 @@ def main(config, args):
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0))
 
-    ei = 0
     step = 0
     while step < config.training.steps:
         metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.trange(config.training.batches[0])
         for i in pb:
-            batch = next(train_iter)
+            batch, _ = next(train_iter)
             batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
@@ -144,13 +141,12 @@ def main(config, args):
             metrics['accuracy'] += accuracy
 
             pb.set_description(
-                f"[step {step+1:,}/{config.training.steps:,}] [epoch {ei+1}] [train] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
+                f"[step {step+1:,}/{config.training.steps:,}] [train] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
             )
             step += 1
 
-        wandb.log({'train': {"loss": metrics["loss"] / i, "accuracy": metrics["accuracy"] / i}}, commit=False, step=step)
+        wandb.log({'train': {"loss": metrics["loss"] / (i+1), "accuracy": metrics["accuracy"] / (i+1)}}, commit=False, step=step)
 
-        ei += 1
         checkpoint_manager.save(
             step,
             flax.jax_utils.unreplicate(state),
@@ -159,8 +155,8 @@ def main(config, args):
 
         metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.trange(config.training.batches[1])
-        for i in pb
-            batch = next(eval_iter)
+        for i in pb:
+            batch, _ = next(eval_iter)
             batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
@@ -168,15 +164,14 @@ def main(config, args):
 
             loss, accuracy = loss.mean(), accuracy.mean()
 
-            # TODO: need to separate out train and eval time metrics
             metrics['loss'] += loss
             metrics['accuracy'] += accuracy
 
             pb.set_description(
-                f"[step {step+1:,}/{config.training.steps:,}] [epoch {ei+1}] [eval] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
+                f"[step {step+1:,}/{config.training.steps:,}] [eval] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
             )
         
-        wandb.log({'eval': {"loss": metrics["loss"] / i, "accuracy": metrics["accuracy"] / i}}, commit=False, step=step)
+        wandb.log({'eval': {"loss": metrics["loss"] / (i+1), "accuracy": metrics["accuracy"] / (i+1)}}, commit=False, step=step)
 
         # TODO: pjit sample?
         print("sampling from current model")
@@ -199,7 +194,7 @@ def main(config, args):
         decoded_image = jax.jit(vqgan.decode_code)(sample)
         img = custom_to_pil(np.asarray(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2)))
         img.save(Path(save_name) / f'sample-{step:08}.jpg')
-        wandb.log({'sample': img}, commit=True, step=step)
+        wandb.log({'sample': wandb.Image(img)}, commit=True, step=step)
 
 
 if __name__ == "__main__":
@@ -217,20 +212,14 @@ if __name__ == "__main__":
         ),
         model=dict(
             num_tokens=16384,
-            # num_tokens=10,
-            dim=2048,
-            # dim=32,
-            depth=[3, 16, 3],
-            # depth=[1,1,1],
+            dim=1024,
+            depth=[2, 10, 2],
             shorten_factor=4,
             resample_type="linear",
-            heads=16,
+            heads=8,
             dim_head=128,
-            # dim_head=8,
             rotary_emb_dim=64,
-            # rotary_emb_dim=4,
             max_seq_len=32,  # effectively squared to 256
-            # max_seq_len=4, # effectively squared to 256
             parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16,  # currently no effect
@@ -240,19 +229,17 @@ if __name__ == "__main__":
             end_learning_rate=3e-6,
             warmup_start_lr=1e-6,
             warmup_steps=5000,
-            unroll_steps=3,
+            unroll_steps=2,
             steps=1_000_000,
-            # epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
             weight_decay=1e-2,
-            temperature=1.0,
-            batches=(1000, 20)
+            temperature=0.5,
+            batches=(1000, 50)
         ),
+        checkpoint=dict(keep_period=50, max_to_keep=3),
         vqgan=dict(name="vq-f8", dtype=jnp.bfloat16),
-        jit_enabled=True,  # TODO: remove, pmap will already jit function
     )
 
-    
     args = Bunch(dict(wandb=True, seed=42)) # if you are changing the seed to get good results, may god help you, hallelujah.
 
     main(dict_to_namespace(config), args)
