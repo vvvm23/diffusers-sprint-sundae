@@ -298,7 +298,7 @@ class HourglassTransformer(nn.Module):
         self.attn_resampling_pre_valley = (
             Transformer(
                 depth=1,
-                max_seq_len=self.max_seq_len
+                max_seq_len=self.max_seq_len,
                 **transformer_kwargs
             )
             if self.attn_resampling
@@ -307,7 +307,7 @@ class HourglassTransformer(nn.Module):
         self.attn_resampling_post_valley = (
             Transformer(
                 depth=1,
-                max_seq_len=self.max_seq_len
+                max_seq_len=self.max_seq_len,
                 **transformer_kwargs
             )
             if self.attn_resampling
@@ -406,6 +406,13 @@ class HourglassTransformerLM(nn.Module):
             )(jnp.arange(x.shape[1]))
             x = x + einops.rearrange(pos_emb, "n d -> () n d")
 
+        # we apply traditional positional embeddings to context, as can't apply rotary when context is on
+        if context is not None:
+            context_pos_emb = nn.Embed(
+                context.shape[1], self.dim, dtype=dtype, embed_dtype=dtype,
+            )(jnp.arange(context.shape[1]))
+            context = context + context_pos_emb
+
         x = HourglassTransformer(
             depth=self.depth,
             shorten_factor=self.shorten_factor,
@@ -446,7 +453,7 @@ class SundaeModel(nn.Module):
             max_seq_len=config.max_seq_len,
             parallel_block=config.parallel_block,
             tied_embedding=config.tied_embedding,
-            attn_resampling=False
+            attn_resampling=True
         )(x, context=context, mask=mask)
 
     # TODO: jit loop

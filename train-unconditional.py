@@ -219,22 +219,22 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=32,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=16,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(
-            num_tokens=256,
+            num_tokens=16384,
             # num_tokens=10,
             dim=1024,
             # dim=32,
-            depth=[2, 12, 2],
+            depth=[3, 16, 3],
             # depth=[1,1,1],
             shorten_factor=4,
             resample_type="linear",
             heads=8,
-            dim_head=64,
+            dim_head=128,
             # dim_head=8,
-            rotary_emb_dim=32,
+            rotary_emb_dim=64,
             # rotary_emb_dim=4,
             max_seq_len=32, # effectively squared to 256
             # max_seq_len=4, # effectively squared to 256
@@ -243,14 +243,14 @@ if __name__ == "__main__":
             dtype=jnp.bfloat16, # currently no effect
         ),
         training=dict(
-            learning_rate = 3e-4,
+            learning_rate=3e-5,
             unroll_steps=3,
             epochs=100, # TODO: maybe replace with train steps
             max_grad_norm=5.0,
             weight_decay=1e-2,
-            temperature=0.8
+            temperature=1.0
         ),
-        vqgan=dict(name="vq-f8-n256", dtype=jnp.bfloat16),
+        vqgan=dict(name="vq-f8", dtype=jnp.bfloat16),
         jit_enabled=True, # TODO: remove, pmap will already jit function
     )
 
