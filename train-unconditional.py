@@ -28,12 +28,11 @@ import vqgan_jax.convert_pt_model_to_jax
 from vqgan_jax.utils import custom_to_pil
 
 from train_utils import build_train_step, create_train_state
-from utils import dict_to_namespace
+from utils import dict_to_namespace, infinite_loader
 from sundae.model import SundaeModel
 
 # Hatman: added imports for wandb, argparse, and bunch
 import wandb
-import argparse
 from bunch import Bunch
 
 
@@ -68,7 +67,6 @@ def get_data_loader(
     )
     return dataset, loader
 
-
 def main(config, args):
     print("Config:", config)
     print("Args:", args)
@@ -91,6 +89,9 @@ def main(config, args):
         train=False,
     )
 
+    train_iter = infinite_loader(train_loader)
+    eval_iter = infinite_loader(eval_loader)
+
     print(f"Loading VQ-GAN")
     vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
         config.vqgan.name, dtype=config.vqgan.dtype
@@ -106,10 +107,12 @@ def main(config, args):
     eval_step = build_train_step(config, vqgan=vqgan, train=False)
     state = flax.jax_utils.replicate(state)
 
-    # TODO: wandb logging plz: Hatman
-    # TODO: need flag to toggle on and off otherwise we will pollute project
-    # wandb.init(project="diffusers-sprint-sundae", config=config)
-
+    if args.wandb:
+        wandb.init(project="diffusers-sprint-sundae", config=config)
+    else:
+        wandb.init(mode="disabled")
+    
+    
     orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
         keep_period=10, max_to_keep=2, create=True
@@ -125,32 +128,27 @@ def main(config, args):
     ei = 0
     step = 0
     while step < config.training.steps:
-        total_loss = 0.0
-        total_accuracy = 0.0
-
-        wandb_metrics = dict(loss=0.0, accuracy=0.0)
-        pb = tqdm.tqdm(train_loader)
-        # TODO: need to change these functions to not exhaust loader before going to next phase
-        for i, (batch, _) in enumerate(pb):
-            batch = einops.rearrange(
-                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor, c=3
-            )
+        metrics = dict(loss=0.0, accuracy=0.0)
+        pb = tqdm.trange(config.training.batches[0])
+        for i in pb:
+            batch = next(train_iter)
+            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
             state, loss, accuracy = pmap_train_step(
                 state, batch, subkeys
             )  # TODO: add donate args, memory save on params
             loss, accuracy = loss.mean(), accuracy.mean()
-            total_loss += loss
-            total_accuracy += accuracy
 
-            wandb_metrics["loss"] += loss
-            wandb_metrics["accuracy"] += accuracy
+            metrics['loss'] += loss
+            metrics['accuracy'] += accuracy
 
             pb.set_description(
-                f"[step {step+1:,}/{config.training.steps}] [epoch {ei+1}] [train] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
+                f"[step {step+1:,}/{config.training.steps:,}] [epoch {ei+1}] [train] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
             )
             step += 1
+
+        wandb.log({'train': {"loss": metrics["loss"] / i, "accuracy": metrics["accuracy"] / i}}, commit=False, step=step)
 
         ei += 1
         checkpoint_manager.save(
@@ -159,29 +157,26 @@ def main(config, args):
             save_kwargs={"save_args": save_args},
         )
 
-        # TODO: need to change these functions to not exhaust loader before going to next phase
-        total_loss = 0.0
-        total_accuracy = 0.0
-        pb = tqdm.tqdm(eval_loader)
-        for i, (batch, _) in enumerate(pb):
-            batch = einops.rearrange(
-                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor, c=3
-            )
+        metrics = dict(loss=0.0, accuracy=0.0)
+        pb = tqdm.trange(config.training.batches[1])
+        for i in pb
+            batch = next(eval_iter)
+            batch = einops.rearrange(batch.numpy(), '(r b) c h w -> r b c h w', r = replication_factor, c = 3)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
             loss, accuracy = pmap_eval_step(state, batch, subkeys)
 
             loss, accuracy = loss.mean(), accuracy.mean()
-            total_loss += loss
-            total_accuracy += accuracy
 
             # TODO: need to separate out train and eval time metrics
-            wandb_metrics["loss"] += loss
-            wandb_metrics["accuracy"] += accuracy
+            metrics['loss'] += loss
+            metrics['accuracy'] += accuracy
 
             pb.set_description(
-                f"[step {step+1}/{config.training.steps}] [epoch {ei+1}] [eval] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
+                f"[step {step+1:,}/{config.training.steps:,}] [epoch {ei+1}] [eval] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
             )
+        
+        wandb.log({'eval': {"loss": metrics["loss"] / i, "accuracy": metrics["accuracy"] / i}}, commit=False, step=step)
 
         # TODO: pjit sample?
         print("sampling from current model")
@@ -202,48 +197,18 @@ def main(config, args):
             return_history=False,
         )  # TODO: param this
         decoded_image = jax.jit(vqgan.decode_code)(sample)
-        custom_to_pil(
-            np.asarray(
-                einops.rearrange(
-                    decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2
-                )
-            )
-        ).save(Path(save_name) / f"sample-{step:08}.jpg")
+        img = custom_to_pil(np.asarray(einops.rearrange(decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2)))
+        img.save(Path(save_name) / f'sample-{step:08}.jpg')
+        wandb.log({'sample': img}, commit=True, step=step)
 
 
 if __name__ == "__main__":
-    # TODO: add proper argparsing!: Hatman
+    # TODO: add proper argparsing!: 
     # TODO: this sadly breaks some hierarchical config arguments :/ really we
     # need something like a yaml config loader or whatever format. Or use
     # SimpleParsing and we can have config files with arg overrides which are
     # also hierarchical
 
-    """
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("-s", "--seed", type=int, default=42)
-    parser.add_argument("-n", "--name", type=str, default="ffhq256")
-    parser.add_argument("-b", "--batch_size", type=int, default=48)
-    parser.add_argument("-w", "--num_workers", type=int, default=4)
-    parser.add_argument("-t", "--num_tokens", type=int, default=16384)
-    parser.add_argument("--dim", type=int, default=1024)
-    parser.add_argument("-d", "--depth", type=int, default=[2, 10, 2])
-    parser.add_argument("-sf", "--shorten_factor", type=int, default=4)
-    parser.add_argument("-rt", "--resample_type", type=str, default="linear")
-    parser.add_argument("-h", "--heads", type=int, default=8)
-    parser.add_argument("-dh", "--dim_head", type=int, default=64)
-    parser.add_argument("-red", "--rotary_emb_dim", type=int, default=32)
-    parser.add_argument("-msl", "--max_seq_len", type=int, default=16)
-    parser.add_argument("-pb", "--parallel_block", type=bool, default=True)
-    parser.add_argument("-te", "--tied_embedding", type=bool, default=False)
-    parser.add_argument("-dt", "--dtype", type=str, default="bfloat16")
-    parser.add_argument("-lr", "--learning_rate", type=float, default=4e-4)
-    parser.add_argument("-us", "--unroll_steps", type=int, default=2)
-    parser.add_argument("-e", "--epochs", type=int, default=100)
-    parser.add_argument("-vq", "--vqgan_name", type=str, default="vq-f16")
-    parser.add_argument("-vqdt", "--vqgan_dtype", type=str, default="bfloat16")
-    parser.add_argument("-jit", "--jit_enabled", type=bool, default=True)
-    config = parser.parse_args()
-    """
     config = dict(
         data=dict(
             name="ffhq256",
@@ -281,15 +246,13 @@ if __name__ == "__main__":
             max_grad_norm=5.0,
             weight_decay=1e-2,
             temperature=1.0,
+            batches=(1000, 20)
         ),
         vqgan=dict(name="vq-f8", dtype=jnp.bfloat16),
         jit_enabled=True,  # TODO: remove, pmap will already jit function
     )
 
-    # Hatman: To eliminate dict_to_namespace
-    args = Bunch(
-        dict(seed=42)
-    )  # if you are changing the seed to get good results, may god help you.
-    # args = dict_to_namespace()
+    
+    args = Bunch(dict(wandb=True, seed=42)) # if you are changing the seed to get good results, may god help you, hallelujah.
 
     main(dict_to_namespace(config), args)

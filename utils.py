@@ -9,3 +9,12 @@ def dict_to_namespace(d):
         for k, v in d.items()
     ]
     return x
+
+def infinite_loader(loader):
+    it = iter(loader)
+    while True:
+        try:
+            yield next(it)
+        except StopIteration:
+            it = iter(loader)
+            yield next(it)

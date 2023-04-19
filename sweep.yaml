@@ -1,0 +1,19 @@
+name: diffusers-sprint-sundae
+description: try different stuff to do more stuff
+program: train-unconditional.py
+method: random
+early_terminate:
+  type: hyperband
+  min_iter: 3
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  batch_size:
+    values: [32, 48, 64, 128]
+  num_workers:
+    values: [3, 4, 5, 6]
+  learning_rate:
+    values: [.00005, .0001, 0.0005, 0.00075, 0.001]
+  epochs:
+    values: [ 40, 80, 120, 160]
