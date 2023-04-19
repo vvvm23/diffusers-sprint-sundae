@@ -136,3 +136,4 @@ sundae-checkpoints_*/
 samples/
 *.png
 *.swp
+wandb/

@@ -109,7 +109,7 @@ def main(config, args):
 
 
 if __name__ == "__main__":
-    # TODO: add proper argparsing!: Hatman
+    # TODO: add proper argparsing!
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )

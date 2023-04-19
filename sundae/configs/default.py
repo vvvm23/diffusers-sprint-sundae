@@ -28,6 +28,7 @@ def get_config() -> mlc.ConfigDict:
         dtype=jnp.bfloat16,
     )
     config.training = dict(
+        wandb=True,
         learning_rate=1e-4,
         unroll_steps=2,
         epochs=100,  # TODO: maybe replace with train steps
