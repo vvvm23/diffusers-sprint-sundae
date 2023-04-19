@@ -1,3 +1,5 @@
+from rich import print
+
 import jax
 from jax import make_jaxpr
 from jax import numpy as jnp
