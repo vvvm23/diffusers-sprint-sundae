@@ -98,6 +98,8 @@ def main(config, args):
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config)
 
+    print(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
+
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
     print(f"Saving checkpoints to directory {save_name}")
