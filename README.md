@@ -56,4 +56,5 @@ Further details on how to work with `ml_collections.config_flags` can be found [
 
 
 ### Acknowledgments
-`TODO: add cool things that helped us :)`
+- The Huggingface Team for their great transformers and diffusers examples
+- lucidrains for his great Hourglass PyTorch implementation
