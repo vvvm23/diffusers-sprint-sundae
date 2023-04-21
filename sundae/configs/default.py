@@ -34,7 +34,7 @@ def get_config() -> mlc.ConfigDict:
         max_seq_len=16, # effectively squared to 256
         parallel_block=True,
         tied_embedding=False,
-        dtype="float16",
+        dtype="bfloat16",
         cache_dir=None,
         use_auth_token=None,
     )
@@ -56,7 +56,7 @@ def get_config() -> mlc.ConfigDict:
     )
     config.vqgan = dict(
         name="vq-f16", 
-        dtype=jnp.bfloat16
+        dtype="bfloat16"
     )
 
     config.jit_enabled = True
