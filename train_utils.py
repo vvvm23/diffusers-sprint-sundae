@@ -81,7 +81,6 @@ def build_train_step(
         if vqgan is not None:
             x = einops.rearrange(x, "n c h w -> n h w c")
             x = preprocess_vqgan(x)
-            # x = jnp.asarray(x, dtype=jnp.int32) # WHY WHY WHY WHY WHY # WHY WHY WHY WHY WHY # WHY WHY WHY WHY WHY # WHY WHY WHY WHY WHY # WHY WHY WHY WHY WHY
             _, x = vqgan.encode(x)
 
         assert (conditioning is None) == (text_encoder is None)
@@ -116,7 +115,6 @@ def build_train_step(
                     samples = logits.argmax(axis=-1)
                 samples = jax.lax.stop_gradient(samples)
 
-            # total_loss = jnp.concatenate(losses).mean()
             logits = jnp.concatenate(all_logits)
             repeat_batch = jnp.concatenate([x] * config.training.unroll_steps)
             total_loss = cross_entropy(logits, repeat_batch) 
@@ -136,6 +134,4 @@ def build_train_step(
         loss, accuracy = loss_fn(state.params, key)
         return loss, accuracy
 
-    # if config.jit_enabled: # we pmap by default so this does nothing now
-    #     return jax.jit(train_step)
     return train_step

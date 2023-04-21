@@ -36,8 +36,10 @@ from sundae.model import SundaeModel
 import wandb
 from bunch import Bunch
 
+from absl import logging
 
 # TODO: expand for whatever datasets we will use
+# TODO: just pass config object
 def get_data_loader(
     name: Literal["ffhq256"],
     batch_size: int = 1,
@@ -68,21 +70,17 @@ def get_data_loader(
 
 def main(config):
     jax.distributed.initialize()
-    print("Config:", config)
 
     devices = jax.devices()
-    print("JAX devices:", devices)
     replication_factor = len(devices)
 
     key = jax.random.PRNGKey(config.seed)
-    print("Random seed:", config.seed)
+    logging.info("Random seed:", config.seed)
 
     # TODO: add drive root param
     save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     save_name.mkdir()
-    print(f"Working directory '{save_name}'")
-    # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    # orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.AsyncCheckpointHandler())
+    logging.info(f"Working directory '{save_name}'")
     orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointHandler())
     checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
         keep_period=config.checkpoint.keep_period,
@@ -93,13 +91,13 @@ def main(config):
         save_name, orbax_checkpointer, checkpoint_opts
     )
 
-    print(f"Loading dataset '{config.data.name}'")
+    logging.info(f"Loading dataset '{config.data.name}'")
     _, train_loader = get_data_loader(
-        config.data.name, config.data.batch_size, config.data.num_workers, train=True
+        config.data.name, config.batch_size, config.data.num_workers, train=True
     )
     _, eval_loader = get_data_loader(
         config.data.name,
-        config.data.batch_size * 2,
+        config.batch_size * 2,
         config.data.num_workers,
         train=False,
     )
@@ -107,7 +105,7 @@ def main(config):
     train_iter = infinite_loader(train_loader)
     eval_iter = infinite_loader(eval_loader)
 
-    print(f"Loading VQ-GAN")
+    logging.info(f"Loading VQ-GAN")
     vqgan_dtype = getattr(jnp, config.vqgan.dtype)
     vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
         config.vqgan.name, dtype=vqgan_dtype
@@ -117,7 +115,7 @@ def main(config):
     state = create_train_state(subkey, config)
     save_args = orbax_utils.save_args_from_target(state)
 
-    print(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
+    logging.info(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
 
     train_step = build_train_step(config, vqgan=vqgan, train=True)
     eval_step = build_train_step(config, vqgan=vqgan, train=False)
@@ -205,7 +203,7 @@ def main(config):
         )
 
         # TODO: pjit sample?
-        print("sampling from current model")
+        logging.info("sampling from current model")
         key, subkey = jax.random.split(key)
         # TODO: param all this
         sample_model = SundaeModel(config.model)

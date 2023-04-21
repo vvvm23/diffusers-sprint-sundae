@@ -33,7 +33,8 @@ config_flags.DEFINE_config_file(
     None,
     "Path to training hyperparameter file."
 )
-flags.mark_flags_as_required(["config", "output_dir"])
+# flags.mark_flags_as_required(["config", "output_dir"])
+flags.mark_flags_as_required(["config"])
 
 
 CONFIG_TO_TRAIN_FN = {
@@ -47,7 +48,7 @@ def main(argv):
 
     config = FLAGS.config
 
-    jax.config.update("jax_log_compiles", True)
+    jax.config.update("jax_log_compiles", config.log_compile)
     jax.config.update("jax_debug_nans", config.debug_nans)
 
     logging.info(f"JAX XLA backend: {FLAGS.jax_xla_backend or 'None'}")
