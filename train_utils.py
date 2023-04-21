@@ -14,57 +14,6 @@ import einops
 from vqgan_jax.utils import preprocess_vqgan
 from sundae import SundaeModel
 
-# def create_lr_scheduler(
-#         mode: Literal['constant', 'constant_warmup', 'linear', 'linear_warmup'],
-#         lr: float,
-#         end_lr: Optional[float] = None,
-#         warmup_start_lr: float = None,
-#         warmup_steps: Optional[int] = None,
-#         total_steps: Optional[int] = None,
-#     ):
-#     if mode == 'constant':
-#         lr_fn = lambda _: lr
-
-#     elif mode == 'constant_warmup':
-#         assert all(p is not None for p in (warmup_start_lr, warmup_steps))
-#         def _constant_warmup(t):
-#             if t >= warmup_steps:
-#                 return lr
-#             delta = lr - warmup_start_lr
-#             fraction = t / warmup_steps
-#             return warmup_start_lr + delta * fraction
-#         lr_fn = _constant_warmup
-
-#     elif mode == 'linear':
-#         assert all(p is not None for p in (end_lr, total_steps))
-#         def _linear(t):
-#             delta = end_lr - lr
-#             fraction = t / total_steps
-#             lr_t = lr + delta * fraction
-
-#             return max(lr_t, end_lr) if lr > end_lr else min(lr_t, end_lr)
-#         lr_fn = _linear
-
-#     elif mode == 'linear_warmup':
-#         assert all(p is not None for p in (end_lr, warmup_start_lr, warmup_steps, total_steps))
-#         def _linear_warmup(t):
-#             if t < warmup_steps:
-#                 delta = lr - warmup_start_lr
-#                 fraction = t / warmup_steps
-#                 return warmup_start_lr + delta * fraction
-#             else:
-#                 delta = end_lr - lr
-#                 fraction = (t - warmup_steps) / (total_steps - warmup_steps)
-#                 lr_t = lr + delta * fraction
-#                 return max(lr_t, end_lr) if lr > end_lr else min(lr_t, end_lr)
-#         lr_fn = _linear_warmup
-
-#     else:
-#         raise ValueError(f"Unrecognized learning rate scheduler '{mode}'")
-
-#     return lr_fn
-
-
 def corrupt_batch(batch, key, num_tokens):
     keys = jax.random.split(key, 3)
     corruption_prob_per_latent = jax.random.uniform(keys[0], (batch.shape[0],))
