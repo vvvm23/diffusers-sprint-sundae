@@ -35,6 +35,12 @@ import wandb
 import argparse
 from bunch import Bunch
 
+from transformers import (
+    FlaxCLIPTextModel,
+    CLIPTokenizer,
+    CLIPTokenizerFast
+)
+
 
 # TODO: unify data loading in a different file
 # TODO: text to image dataset
@@ -59,16 +65,32 @@ def get_data_loader(
     return dataset, loader
 
 
-def main(config, args):
+def load_text_encoder(config) -> FlaxCLIPTextModel:
+    text_encoder = FlaxCLIPTextModel.from_pretrained(
+        config.text_encoder.model_name_or_path, 
+        from_pt=config.text_encoder.from_pt
+    )
+    return text_encoder
+
+
+def load_tokenizer(config) -> Union[CLIPTokenizer, CLIPTokenizerFast]:
+    Tokenizer = CLIPTokenizerFast if config.text_encoder.use_fast_tokenizer else CLIPTokenizer
+    tokenizer = Tokenizer.from_pretrained(config.text_encoder.model_name_or_path)
+    return tokenizer
+
+
+def main(config):
     print("Config:", config)
-    print("Args:", args)
 
     devices = jax.devices()
     print("JAX devices:", devices)
     replication_factor = len(devices)
 
-    key = jax.random.PRNGKey(args.seed)
-    print("Random seed:", args.seed)
+    key = jax.random.PRNGKey(config.seed)
+    print("Random seed:", config.seed)
+
+    print("Loading CLIPTokenizer")
+    tokenizer = load_tokenizer(config)
 
     print(f"Loading dataset '{config.data.name}'")
     _, loader = get_data_loader(
@@ -80,6 +102,9 @@ def main(config, args):
         config.vqgan.name, dtype=config.vqgan.dtype
     )
 
+    print(f"Loading FlaxCLIPTextModel")
+    text_encoder = load_text_encoder(config)
+
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config)
     state = flax.jax_utils.replicate(state)
@@ -87,7 +112,7 @@ def main(config, args):
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
     print(f"Saving checkpoints to directory {save_name}")
-    train_step = build_train_step(config, vqgan)
+    train_step = build_train_step(config, vqgan, text_encoder)
 
     # TODO: wandb logging plz: Hatman
     # TODO: need flag to toggle on and off otherwise we will pollute project
@@ -194,6 +219,11 @@ if __name__ == "__main__":
             tied_embedding=False,
             dtype=jnp.bfloat16,  # currently no effect
         ),
+        text_encoder=dict(
+            model_name_or_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
+            from_pt=True,
+            use_fast_tokenizer=True
+        )
         training=dict(
             learning_rate=4e-4,
             unroll_steps=2,
@@ -203,12 +233,7 @@ if __name__ == "__main__":
         ),
         vqgan=dict(name="vq-f8-n256", dtype=jnp.float32),
         jit_enabled=True,
+        seed=42
     )
 
-    # Hatman: To eliminate dict_to_namespace
-    args = Bunch(
-        dict(seed=42)
-    )  # if you are changing the seed to get good results, may god help you.
-    # args = dict_to_namespace()
-
-    main(dict_to_namespace(config), args)
+    main(dict_to_namespace(config))
