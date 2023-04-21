@@ -77,5 +77,7 @@ def get_config() -> mlc.ConfigDict:
 
     config.logging_dir = "./logs"
     config.report_to_wandb = True
+
+    config.debug_nans = False
     
     return config
