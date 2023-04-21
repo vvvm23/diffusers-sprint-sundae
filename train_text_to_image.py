@@ -35,12 +35,6 @@ import wandb
 import argparse
 from bunch import Bunch
 
-from transformers import (
-    FlaxCLIPTextModel,
-    CLIPTokenizer,
-    CLIPTokenizerFast
-)
-
 
 # TODO: unify data loading in a different file
 # TODO: text to image dataset
@@ -65,20 +59,6 @@ def get_data_loader(
     return dataset, loader
 
 
-def load_text_encoder(config) -> FlaxCLIPTextModel:
-    text_encoder = FlaxCLIPTextModel.from_pretrained(
-        config.text_encoder.model_name_or_path, 
-        from_pt=config.text_encoder.from_pt
-    )
-    return text_encoder
-
-
-def load_tokenizer(config) -> Union[CLIPTokenizer, CLIPTokenizerFast]:
-    Tokenizer = CLIPTokenizerFast if config.text_encoder.use_fast_tokenizer else CLIPTokenizer
-    tokenizer = Tokenizer.from_pretrained(config.text_encoder.model_name_or_path)
-    return tokenizer
-
-
 def main(config, args):
     print("Config:", config)
     print("Args:", args)
@@ -90,9 +70,6 @@ def main(config, args):
     key = jax.random.PRNGKey(args.seed)
     print("Random seed:", args.seed)
 
-    print("Loading CLIPTokenizer")
-    tokenizer = load_tokenizer(config)
-
     print(f"Loading dataset '{config.data.name}'")
     _, loader = get_data_loader(
         config.data.name, config.data.batch_size, config.data.num_workers
@@ -103,9 +80,6 @@ def main(config, args):
         config.vqgan.name, dtype=config.vqgan.dtype
     )
 
-    print(f"Loading FlaxCLIPTextModel")
-    text_encoder = load_text_encoder(config)
-
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config)
     state = flax.jax_utils.replicate(state)
@@ -113,7 +87,7 @@ def main(config, args):
     save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     Path(save_name).mkdir()
     print(f"Saving checkpoints to directory {save_name}")
-    train_step = build_train_step(config, vqgan, text_encoder)
+    train_step = build_train_step(config, vqgan)
 
     # TODO: wandb logging plz: Hatman
     # TODO: need flag to toggle on and off otherwise we will pollute project
@@ -220,11 +194,6 @@ if __name__ == "__main__":
             tied_embedding=False,
             dtype=jnp.bfloat16,  # currently no effect
         ),
-        text_encoder=dict(
-            model_name_or_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
-            from_pt=True,
-            use_fast_tokenizer=True
-        )
         training=dict(
             learning_rate=4e-4,
             unroll_steps=2,

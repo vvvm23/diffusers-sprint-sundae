@@ -67,16 +67,15 @@ def get_data_loader(
     return dataset, loader
 
 
-def main(config, args):
+def main(config):
     print("Config:", config)
-    print("Args:", args)
 
     devices = jax.devices()
     print("JAX devices:", devices)
     replication_factor = len(devices)
 
-    key = jax.random.PRNGKey(args.seed)
-    print("Random seed:", args.seed)
+    key = jax.random.PRNGKey(config.seed)
+    print("Random seed:", config.seed)
 
     print(f"Loading dataset '{config.data.name}'")
     _, train_loader = get_data_loader(
@@ -93,8 +92,9 @@ def main(config, args):
     eval_iter = infinite_loader(eval_loader)
 
     print(f"Loading VQ-GAN")
+    vqgan_dtype = getattr(jnp, config.vqgan.dtype)
     vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
-        config.vqgan.name, dtype=config.vqgan.dtype
+        config.vqgan.name, dtype=vqgan_dtype
     )
 
     key, subkey = jax.random.split(key)
@@ -109,7 +109,7 @@ def main(config, args):
     eval_step = build_train_step(config, vqgan=vqgan, train=False)
     state = flax.jax_utils.replicate(state)
 
-    if args.wandb:
+    if config.report_to_wandb:
         wandb.init(project="diffusers-sprint-sundae", config=config)
     else:
         wandb.init(mode="disabled")
@@ -271,10 +271,8 @@ if __name__ == "__main__":
         ),
         checkpoint=dict(keep_period=50, max_to_keep=3),
         vqgan=dict(name="vq-f8", dtype=jnp.bfloat16),
+        report_to_wandb=True,
+        seed=42
     )
 
-    args = Bunch(
-        dict(wandb=True, seed=42)
-    )  # if you are changing the seed to get good results, may god help you, hallelujah.
-
-    main(dict_to_namespace(config), args)
+    main(dict_to_namespace(config))
