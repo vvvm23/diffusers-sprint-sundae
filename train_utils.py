@@ -14,6 +14,11 @@ import einops
 from vqgan_jax.utils import preprocess_vqgan
 from sundae import SundaeModel
 
+def cross_entropy(logits, targets):
+    nll = jnp.take_along_axis(logits, jnp.expand_dims(targets, axis=-1), axis=-1)
+    ce = -jnp.mean(nll)
+    return ce
+
 def corrupt_batch(batch, key, num_tokens):
     keys = jax.random.split(key, 3)
     corruption_prob_per_latent = jax.random.uniform(keys[0], (batch.shape[0],))
@@ -112,9 +117,7 @@ def build_train_step(
             # total_loss = jnp.concatenate(losses).mean()
             logits = jnp.concatenate(all_logits)
             repeat_batch = jnp.concatenate([x] * config.training.unroll_steps)
-            total_loss = optax.softmax_cross_entropy_with_integer_labels(
-                logits, repeat_batch
-            ).mean()
+            total_loss = cross_entropy(logits, repeat_batch)
             total_accuracy = (logits.argmax(axis=-1) == repeat_batch).mean()
 
             return total_loss, 100.0 * total_accuracy
