@@ -46,7 +46,6 @@ def main(argv):
     del argv
 
     jax.config.update("jax_log_compiles", True)
-    jax.config.update("jax_debug_nans", True)
 
     logging.info(f"JAX XLA backend: {FLAGS.jax_xla_backend or 'None'}")
     logging.info(f"JAX process: {jax.process_index()} / {jax.process_count()}")

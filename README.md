@@ -67,4 +67,4 @@ a `get_config` method which returns a `ml_collections.ConfigDict`. Look into the
 
 ### Acknowledgments
 - The Huggingface Team for their great transformers and diffusers examples
-- lucidrains for his great Hourglass PyTorch implementation
+- [lucidrains](https://github.com/lucidrains) for his great Hourglass PyTorch implementation
