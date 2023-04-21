@@ -47,8 +47,8 @@ def get_data_loader(
     if name in ["ffhq256"]:
         dataset = ImageFolder(
             "data/ffhq256",
-            # transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
-            transform=T.Compose([T.ToTensor()]),
+            transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
+            # transform=T.Compose([T.ToTensor()]),
         )
         if train:
             dataset = Subset(dataset, list(range(60_000)))
@@ -68,6 +68,7 @@ def get_data_loader(
 
 
 def main(config, args):
+    jax.distributed.initialize()
     print("Config:", config)
     print("Args:", args)
 
@@ -102,8 +103,9 @@ def main(config, args):
 
     print(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
 
-    save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
-    Path(save_name).mkdir()
+    # TODO: add drive root param
+    save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
+    save_name.mkdir()
     print(f"Saving checkpoints to directory {save_name}")
     train_step = build_train_step(config, vqgan=vqgan, train=True)
     eval_step = build_train_step(config, vqgan=vqgan, train=False)
@@ -114,7 +116,8 @@ def main(config, args):
     else:
         wandb.init(mode="disabled")
 
-    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointer())
     checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
         keep_period=config.checkpoint.keep_period,
         max_to_keep=config.checkpoint.max_to_keep,
