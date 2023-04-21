@@ -47,8 +47,7 @@ def get_data_loader(
     if name in ["ffhq256"]:
         dataset = ImageFolder(
             "data/ffhq256",
-            # transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
-            transform=T.Compose([T.ToTensor()]),
+            transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
         )
         if train:
             dataset = Subset(dataset, list(range(60_000)))
@@ -68,6 +67,7 @@ def get_data_loader(
 
 
 def main(config):
+    jax.distributed.initialize()
     print("Config:", config)
 
     devices = jax.devices()
@@ -76,6 +76,22 @@ def main(config):
 
     key = jax.random.PRNGKey(config.seed)
     print("Random seed:", config.seed)
+
+    # TODO: add drive root param
+    save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
+    save_name.mkdir()
+    print(f"Working directory '{save_name}'")
+    # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    # orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.AsyncCheckpointHandler())
+    orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointHandler())
+    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
+        keep_period=config.checkpoint.keep_period,
+        max_to_keep=config.checkpoint.max_to_keep,
+        create=True,
+    )
+    checkpoint_manager = orbax.checkpoint.CheckpointManager(
+        save_name, orbax_checkpointer, checkpoint_opts
+    )
 
     print(f"Loading dataset '{config.data.name}'")
     _, train_loader = get_data_loader(
@@ -99,12 +115,10 @@ def main(config):
 
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config)
+    save_args = orbax_utils.save_args_from_target(state)
 
     print(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
 
-    save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
-    Path(save_name).mkdir()
-    print(f"Saving checkpoints to directory {save_name}")
     train_step = build_train_step(config, vqgan=vqgan, train=True)
     eval_step = build_train_step(config, vqgan=vqgan, train=False)
     state = flax.jax_utils.replicate(state)
@@ -114,16 +128,6 @@ def main(config):
     else:
         wandb.init(mode="disabled")
 
-    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
-        keep_period=config.checkpoint.keep_period,
-        max_to_keep=config.checkpoint.max_to_keep,
-        create=True,
-    )
-    checkpoint_manager = orbax.checkpoint.CheckpointManager(
-        save_name, orbax_checkpointer, checkpoint_opts
-    )
-    save_args = orbax_utils.save_args_from_target(state)
 
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0))
@@ -240,19 +244,19 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=16,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=32,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(
             num_tokens=16384,
             dim=1024,
             depth=[2, 10, 2],
-            shorten_factor=4,
+            shorten_factor=2,
             resample_type="linear",
             heads=8,
-            dim_head=128,
-            rotary_emb_dim=64,
-            max_seq_len=32,  # effectively squared to 256
+            dim_head=64,
+            rotary_emb_dim=32,
+            max_seq_len=16,  # effectively squared to 256
             parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16,  # currently no effect
@@ -261,16 +265,16 @@ if __name__ == "__main__":
             learning_rate=4e-4,
             end_learning_rate=3e-6,
             warmup_start_lr=1e-6,
-            warmup_steps=5000,
-            unroll_steps=2,
+            warmup_steps=4000,
+            unroll_steps=3,
             steps=1_000_000,
             max_grad_norm=5.0,
-            weight_decay=1e-2,
-            temperature=0.5,
-            batches=(1000, 50),
+            weight_decay=0.0,
+            temperature=1.0,
+            batches=(4000, 200),
         ),
-        checkpoint=dict(keep_period=50, max_to_keep=3),
-        vqgan=dict(name="vq-f8", dtype=jnp.bfloat16),
+        checkpoint=dict(keep_period=100, max_to_keep=3),
+        vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
         report_to_wandb=True,
         seed=42
     )

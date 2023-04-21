@@ -10,9 +10,10 @@ from typing import Callable, Optional, Sequence, Union, Literal
 import einops
 from math import sqrt
 import tqdm
+from functools import partial
 
 from sundae.rotary_embeddings import broadcat, generate_embeddings, apply_rotary_emb
-
+from flax.linen.attention import dot_product_attention
 
 def exists(val):
     return val is not None
@@ -121,7 +122,7 @@ class FeedForward(nn.Module):
         return nn.Sequential(
             [
                 Dense(dim * self.mult),
-                nn.gelu,
+                partial(nn.gelu, approximate=False),
                 Dense(dim),
             ]
         )(x)
@@ -131,6 +132,7 @@ class FeedForward(nn.Module):
 class Attention(nn.Module):
     heads: int = 8
     dim_head: int = 64
+    use_flax_attention: bool = True
 
     @nn.compact
     def __call__(
@@ -156,24 +158,34 @@ class Attention(nn.Module):
             q = einops.rearrange(q, "b h w d -> b (h w) d")
             k = einops.rearrange(k, "b h w d -> b (h w) d")
 
-        q, k, v = map(
-            lambda t: einops.rearrange(t, "b n (h d) -> b h n d", h=h), (q, k, v)
-        )
-        q = q * scale
-
-        sim = jnp.einsum("b h i d, b h j d -> b h i j", q, k)
-        mask_value = -jnp.finfo(sim.dtype).max
-
         if mask is not None:
             mask = einops.rearrange(mask, "b j -> b () () j")
-            jnp.where(~mask, mask_value, sim)  # TODO: check mask polarity is right
-        # no need for causal mask, model is always non-causal
+            mask_value = -jnp.finfo(sim.dtype).max
 
-        sim = jnp.array(sim, dtype=jnp.float32)
-        attn = nn.softmax(sim, axis=-1)
-        out = jnp.einsum("b h i j, b h j d -> b h i d", attn, v)
-        out = jnp.array(out, dtype=jnp.float32)
-        out = einops.rearrange(out, "b h n d -> b n (h d)", h=h)
+        if self.use_flax_attention:
+            q, k, v = map(
+                lambda t: einops.rearrange(t, "b n (h d) -> b n h d", h=h), (q, k, v)
+            )
+            out = dot_product_attention(q, k, v, mask=mask)
+            out = einops.rearrange(out, "b n h d -> b n (h d)", h=h)
+        else:
+            q, k, v = map(
+                lambda t: einops.rearrange(t, "b n (h d) -> b h n d", h=h), (q, k, v)
+            )
+            q = q * scale
+
+            sim = jnp.einsum("b h i d, b h j d -> b h i j", q, k)
+
+            if mask is not None:
+                jnp.where(~mask, mask_value, sim)  # TODO: check mask polarity is right
+            # no need for causal mask, model is always non-causal
+
+            sim = jnp.array(sim, dtype=jnp.float32)
+            attn = nn.softmax(sim, axis=-1)
+            out = jnp.einsum("b h i j, b h j d -> b h i d", attn, v)
+
+            out = einops.rearrange(out, "b h n d -> b n (h d)", h=h)
+
         out = Dense(x.shape[-1], use_bias=True)(out)
 
         return out
@@ -401,7 +413,7 @@ class HourglassTransformerLM(nn.Module):
     dim: int
     depth: Sequence[int]
     shorten_factor: Union[Sequence[int], int] = 2
-    attn_resampling: bool = (True,)
+    attn_resampling: bool = True
     resample_type: Literal["naive", "linear"] = "naive"
     heads: int = 8
     dim_head: int = 64
@@ -437,7 +449,6 @@ class HourglassTransformerLM(nn.Module):
                 context.shape[1],
                 self.dim,
                 dtype=dtype,
-                embed_dtype=dtype,
             )(jnp.arange(context.shape[1]))
             context = context + context_pos_emb
 
@@ -561,7 +572,7 @@ class SundaeModel(nn.Module):
 if __name__ == "__main__":
     jax.config.update("jax_platform_name", "cpu")
     x = jnp.zeros((4, 256), dtype=jnp.int32)
-    context = jnp.zeros((4, 5, 512))
+    # context = jnp.zeros((4, 5, 512))
     key, model_key = jax.random.split(jax.random.PRNGKey(0))
     test_model = HourglassTransformerLM(
         num_tokens=1024,
@@ -573,6 +584,6 @@ if __name__ == "__main__":
         rotary_emb_dim=32,
         max_seq_len=16,
     )
-    params = test_model.init(model_key, x, context=context)
-    y = test_model.apply(params, x, context=context)
+    params = test_model.init(model_key, x)
+    y = test_model.apply(params, x)
     print("output:", y.shape, y.min(), y.mean(), y.max())
