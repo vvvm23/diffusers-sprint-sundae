@@ -48,7 +48,6 @@ def get_data_loader(
         dataset = ImageFolder(
             "data/ffhq256",
             transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
-            # transform=T.Compose([T.ToTensor()]),
         )
         if train:
             dataset = Subset(dataset, list(range(60_000)))
@@ -79,6 +78,22 @@ def main(config, args):
     key = jax.random.PRNGKey(args.seed)
     print("Random seed:", args.seed)
 
+    # TODO: add drive root param
+    save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
+    save_name.mkdir()
+    print(f"Working directory '{save_name}'")
+    # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    # orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.AsyncCheckpointHandler())
+    orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointHandler())
+    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
+        keep_period=config.checkpoint.keep_period,
+        max_to_keep=config.checkpoint.max_to_keep,
+        create=True,
+    )
+    checkpoint_manager = orbax.checkpoint.CheckpointManager(
+        save_name, orbax_checkpointer, checkpoint_opts
+    )
+
     print(f"Loading dataset '{config.data.name}'")
     _, train_loader = get_data_loader(
         config.data.name, config.data.batch_size, config.data.num_workers, train=True
@@ -100,13 +115,10 @@ def main(config, args):
 
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config)
+    save_args = orbax_utils.save_args_from_target(state)
 
     print(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
 
-    # TODO: add drive root param
-    save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
-    save_name.mkdir()
-    print(f"Saving checkpoints to directory {save_name}")
     train_step = build_train_step(config, vqgan=vqgan, train=True)
     eval_step = build_train_step(config, vqgan=vqgan, train=False)
     state = flax.jax_utils.replicate(state)
@@ -116,17 +128,6 @@ def main(config, args):
     else:
         wandb.init(mode="disabled")
 
-    # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointer())
-    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
-        keep_period=config.checkpoint.keep_period,
-        max_to_keep=config.checkpoint.max_to_keep,
-        create=True,
-    )
-    checkpoint_manager = orbax.checkpoint.CheckpointManager(
-        save_name, orbax_checkpointer, checkpoint_opts
-    )
-    save_args = orbax_utils.save_args_from_target(state)
 
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0))
@@ -136,6 +137,7 @@ def main(config, args):
         metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.trange(config.training.batches[0])
         for i in pb:
+            break
             batch, _ = next(train_iter)
             batch = einops.rearrange(
                 batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor, c=3
