@@ -68,3 +68,4 @@ a `get_config` method which returns a `ml_collections.ConfigDict`. Look into the
 ### Acknowledgments
 - The Huggingface Team for their great transformers and diffusers examples
 - [lucidrains](https://github.com/lucidrains) for his great Hourglass PyTorch implementation
+- Google Cloud for generously providing free TPU hours.
