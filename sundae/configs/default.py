@@ -6,14 +6,23 @@ import jax.numpy as jnp
 def get_config() -> mlc.ConfigDict:
     config = mlc.ConfigDict()
 
+    config.train_fn = "unconditional"
+    config.do_train = False
+    config.batch_size = 48
     config.seed = 0
 
     config.data = dict(
         name="ffhq256",
-        batch_size=48,  # TODO: really this shouldn't be under data, it affects the numerics of the model
         num_workers=4,
+        image_size=224,
+        train_dir="",
+        validation_dir="",        
+        overwrite_cache=True,
+        flip_p=0.5
     )
     config.model = dict(
+        model_name_or_path="",
+        config_name="",
         num_tokens=16_384,
         dim=1024,
         depth=[2, 12, 2],
@@ -25,13 +34,25 @@ def get_config() -> mlc.ConfigDict:
         max_seq_len=16, # effectively squared to 256
         parallel_block=True,
         tied_embedding=False,
-        dtype=jnp.bfloat16,
+        dtype="float16",
+        cache_dir=None,
+        use_auth_token=None,
+    )
+    config.text_encoder = dict(
+        model_name_or_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
+        from_pt=True,
+        use_fast_tokenizer=True
     )
     config.training = dict(
-        wandb=True,
         learning_rate=1e-4,
         unroll_steps=2,
-        epochs=100,  # TODO: maybe replace with train steps
+        num_epochs=100,
+        max_steps=None,
+        warmup_steps=0,
+        adam_beta1=0.9,
+        adam_beta2=0.999,
+        adam_epsilon=1e-08,
+        weight_decay=0.0
     )
     config.vqgan = dict(
         name="vq-f16", 
@@ -40,4 +61,7 @@ def get_config() -> mlc.ConfigDict:
 
     config.jit_enabled = True
 
+    config.logging_dir = "./logs"
+    config.report_to_wandb = True
+    
     return config
