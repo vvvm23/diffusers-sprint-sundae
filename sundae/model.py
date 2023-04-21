@@ -413,7 +413,7 @@ class HourglassTransformerLM(nn.Module):
     dim: int
     depth: Sequence[int]
     shorten_factor: Union[Sequence[int], int] = 2
-    attn_resampling: bool = (True,)
+    attn_resampling: bool = True
     resample_type: Literal["naive", "linear"] = "naive"
     heads: int = 8
     dim_head: int = 64

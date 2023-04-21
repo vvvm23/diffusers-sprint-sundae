@@ -240,19 +240,19 @@ if __name__ == "__main__":
     config = dict(
         data=dict(
             name="ffhq256",
-            batch_size=16,  # TODO: really this shouldn't be under data, it affects the numerics of the model
+            batch_size=32,  # TODO: really this shouldn't be under data, it affects the numerics of the model
             num_workers=4,
         ),
         model=dict(
             num_tokens=16384,
             dim=1024,
             depth=[2, 10, 2],
-            shorten_factor=4,
+            shorten_factor=2,
             resample_type="linear",
             heads=8,
-            dim_head=128,
-            rotary_emb_dim=64,
-            max_seq_len=32,  # effectively squared to 256
+            dim_head=64,
+            rotary_emb_dim=32,
+            max_seq_len=16,  # effectively squared to 256
             parallel_block=False,
             tied_embedding=False,
             dtype=jnp.bfloat16,  # currently no effect
@@ -261,16 +261,16 @@ if __name__ == "__main__":
             learning_rate=4e-4,
             end_learning_rate=3e-6,
             warmup_start_lr=1e-6,
-            warmup_steps=5000,
-            unroll_steps=2,
+            warmup_steps=4000,
+            unroll_steps=3,
             steps=1_000_000,
             max_grad_norm=5.0,
-            weight_decay=1e-2,
-            temperature=0.5,
-            batches=(1000, 50),
+            weight_decay=0.0,
+            temperature=1.0,
+            batches=(4000, 200),
         ),
-        checkpoint=dict(keep_period=50, max_to_keep=3),
-        vqgan=dict(name="vq-f8", dtype=jnp.bfloat16),
+        checkpoint=dict(keep_period=100, max_to_keep=3),
+        vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
     )
 
     args = Bunch(

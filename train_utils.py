@@ -15,7 +15,9 @@ from vqgan_jax.utils import preprocess_vqgan
 from sundae import SundaeModel
 
 def cross_entropy(logits, targets):
-    nll = jnp.take_along_axis(logits, jnp.expand_dims(targets, axis=-1), axis=-1)
+    logits = einops.rearrange(logits, 'b n c -> (b n) c')
+    targets = einops.rearrange(targets, 'b n -> (b n)')
+    nll = jnp.take_along_axis(nn.activation.log_softmax(logits, axis=-1), jnp.expand_dims(targets, axis=-1), axis=-1)
     ce = -jnp.mean(nll)
     return ce
 
@@ -117,7 +119,7 @@ def build_train_step(
             # total_loss = jnp.concatenate(losses).mean()
             logits = jnp.concatenate(all_logits)
             repeat_batch = jnp.concatenate([x] * config.training.unroll_steps)
-            total_loss = cross_entropy(logits, repeat_batch)
+            total_loss = cross_entropy(logits, repeat_batch) 
             total_accuracy = (logits.argmax(axis=-1) == repeat_batch).mean()
 
             return total_loss, 100.0 * total_accuracy
