@@ -45,8 +45,10 @@ CONFIG_TO_TRAIN_FN = {
 def main(argv):
     del argv
 
+    config = FLAGS.config
+
     jax.config.update("jax_log_compiles", True)
-    jax.config.update("jax_debug_nans", True)
+    jax.config.update("jax_debug_nans", config.debug_nans)
 
     logging.info(f"JAX XLA backend: {FLAGS.jax_xla_backend or 'None'}")
     logging.info(f"JAX process: {jax.process_index()} / {jax.process_count()}")
@@ -56,12 +58,11 @@ def main(argv):
         f"process_count: {jax.process_count()}"
     )
 
-    logging.info(f"Config: {FLAGS.config}")
+    logging.info(f"Config: {config}")
 
-    config = FLAGS.config
     if config.do_train:
         train_fn = CONFIG_TO_TRAIN_FN[config.train_fn]
-        train(config)
+        train_fn(config)
 
 
 if __name__ == "__main__":
