@@ -10,6 +10,7 @@ from typing import Callable, Optional, Sequence, Union, Literal
 import einops
 from math import sqrt
 import tqdm
+from functools import partial
 
 from sundae.rotary_embeddings import broadcat, generate_embeddings, apply_rotary_emb
 
@@ -121,7 +122,7 @@ class FeedForward(nn.Module):
         return nn.Sequential(
             [
                 Dense(dim * self.mult),
-                nn.gelu,
+                partial(nn.gelu, approximate=False),
                 Dense(dim),
             ]
         )(x)
