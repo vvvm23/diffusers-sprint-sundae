@@ -92,8 +92,9 @@ def main(config):
     eval_iter = infinite_loader(eval_loader)
 
     print(f"Loading VQ-GAN")
+    vqgan_dtype = getattr(jnp, config.vqgan.dtype)
     vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
-        config.vqgan.name, dtype=config.vqgan.dtype
+        config.vqgan.name, dtype=vqgan_dtype
     )
 
     key, subkey = jax.random.split(key)
