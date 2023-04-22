@@ -74,6 +74,7 @@ def build_train_step(
     config: dict,
     vqgan: Optional[nn.Module] = None,
     text_encoder: Optional[nn.Module] = None,
+    classifier_free_embedding: Optional[ArrayLike] = None,
     train: bool = True,
 ):
     def train_step(
@@ -98,10 +99,12 @@ def build_train_step(
         # for debugging, just make `text_encoder` a callable that returns a constant
         # note, even when operating in a classifier-free way, we still pass an empty string, and hence a token sequence
         if text_encoder is not None:
-            conditioning = text_encoder(conditioning)
-
-        # TODO: classifier-free guidance, how to do in best way? Does it work on SUNDAE?
-        # maybe precompute empty embedding and compile as a constant?
+            if classifier_free_embedding is not None and config.training.conditioning_dropout > 0.0:
+                key, subkey = jax.random.split(key)
+                mask = jax.random.uniform(subkey, (conditioning.shape[0],)) < config.training.conditioning_dropout
+                conditioning = einops.repeat(classifier_free_embedding, '1 ... -> n ...', n=conditioning.shape[0]) * mask + text_encoder(conditioning) * ~mask
+            else:
+                conditioning = text_encoder(conditioning)
 
         def loss_fn(params, key):
             all_logits = []

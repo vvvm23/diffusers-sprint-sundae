@@ -49,11 +49,16 @@ def load_text_encoder(config) -> FlaxCLIPTextModel:
     )
     return text_encoder
 
-
 def load_tokenizer(config) -> Union[CLIPTokenizer, CLIPTokenizerFast]:
     Tokenizer = CLIPTokenizerFast if config.text_encoder.use_fast_tokenizer else CLIPTokenizer
     tokenizer = Tokenizer.from_pretrained(config.text_encoder.model_name_or_path)
     return tokenizer
+
+def compute_classifer_free_embedding(config, encoder: FlaxCLIPTextModel, tokenizer: CLIPTokenizer):
+    prompt = [""]
+    tokens = tokenizer(prompt, padding="max_length", max_length=config.text_encoder.max_length, return_tensors='np')
+    embedding = encoder(tokens)
+    return embedding
 
 # TODO: unify data loading in a different file
 # TODO: text to image dataset
@@ -130,7 +135,9 @@ def main(config):
     logging.info(f"Loading FlaxCLIPTextModel")
     text_encoder = load_text_encoder(config)
 
-    train_step = build_train_step(config, vqgan=vqgan, train=True, text_encoder=text_encoder)
+    classifier_free_embedding = compute_classifer_free_embedding(config, text_encoder, tokenizer)
+
+    train_step = build_train_step(config, vqgan=vqgan, train=True, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
     eval_step = build_train_step(config, vqgan=vqgan, train=False, text_encoder=text_encoder)
     # TODO: param all this
     sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder)
@@ -144,6 +151,7 @@ def main(config):
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0, 0))
     pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0, 0))
+    
 
     step = 0
     while step < config.training.step:

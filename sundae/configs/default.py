@@ -53,6 +53,7 @@ def get_config() -> mlc.ConfigDict:
         weight_decay=0.0,
         temperature=1.0,
         batches=(4000, 200),
+        conditioning_dropout = 0.2
     )
     config.vqgan = dict(name="vq-f8", dtype="bfloat16")
 
