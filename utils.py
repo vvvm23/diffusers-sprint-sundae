@@ -10,6 +10,7 @@ def dict_to_namespace(d):
     ]
     return x
 
+
 def infinite_loader(loader):
     it = iter(loader)
     while True:

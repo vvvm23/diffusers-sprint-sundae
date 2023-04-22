@@ -1,16 +1,6 @@
-from typing import (
-    Callable, 
-    Optional, 
-    Sequence, 
-    Union, 
-    Literal
-)
+from typing import Callable, Optional, Sequence, Union, Literal
 
-from absl import (
-    app,
-    flags,
-    logging
-)
+from absl import app, flags, logging
 
 
 import jax
@@ -24,22 +14,16 @@ from train_text_to_image import main as _train_text_to_image
 FLAGS = flags.FLAGS
 
 OUTPUT_DIR = flags.DEFINE_string(
-    "output_dir",
-    None,
-    "An output directory for logs and checkpoints."
+    "output_dir", None, "An output directory for logs and checkpoints."
 )
-config_flags.DEFINE_config_file(
-    "config",
-    None,
-    "Path to training hyperparameter file."
-)
+config_flags.DEFINE_config_file("config", None, "Path to training hyperparameter file.")
 # flags.mark_flags_as_required(["config", "output_dir"])
 flags.mark_flags_as_required(["config"])
 
 
 CONFIG_TO_TRAIN_FN = {
     "unconditional": _train_unconditional,
-    "text_to_image": _train_text_to_image
+    "text_to_image": _train_text_to_image,
 }
 
 

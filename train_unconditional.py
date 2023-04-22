@@ -40,6 +40,7 @@ from bunch import Bunch
 
 from absl import logging
 
+
 # TODO: expand for whatever datasets we will use
 # TODO: just pass config object
 def get_data_loader(
@@ -80,10 +81,14 @@ def main(config):
     logging.info("Random seed:", config.seed)
 
     # TODO: add drive root param
-    save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
+    save_name = Path(
+        "/mnt/disks/persist/checkpoints"
+    ) / datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
     save_name.mkdir()
     logging.info(f"Working directory '{save_name}'")
-    orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointHandler())
+    orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(
+        orbax.checkpoint.PyTreeCheckpointHandler()
+    )
     checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
         keep_period=config.checkpoint.keep_period,
         max_to_keep=config.checkpoint.max_to_keep,
@@ -117,19 +122,22 @@ def main(config):
     state = create_train_state(subkey, config)
     save_args = orbax_utils.save_args_from_target(state)
 
-    logging.info(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
+    logging.info(
+        f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}"
+    )
 
     train_step = build_train_step(config, vqgan=vqgan, train=True)
     eval_step = build_train_step(config, vqgan=vqgan, train=False)
     # TODO: param all this
-    sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5)
+    sample_loop = build_fast_sample_loop(
+        config, vqgan=vqgan, temperature=0.7, proportion=0.5
+    )
     state = flax.jax_utils.replicate(state)
 
     if config.report_to_wandb:
         wandb.init(project="diffusers-sprint-sundae", config=config)
     else:
         wandb.init(mode="disabled")
-
 
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0))
@@ -216,7 +224,10 @@ def main(config):
         img = custom_to_pil(
             np.asarray(
                 einops.rearrange(
-                    img, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=sqrt_num_images, b2=img.shape[0] // sqrt_num_images
+                    img,
+                    "(b1 b2) h w c -> (b1 h) (b2 w) c",
+                    b1=sqrt_num_images,
+                    b2=img.shape[0] // sqrt_num_images,
                 )
             )
         )
@@ -266,7 +277,7 @@ if __name__ == "__main__":
         checkpoint=dict(keep_period=100, max_to_keep=3),
         vqgan=dict(name="vq-f16", dtype=jnp.bfloat16),
         report_to_wandb=True,
-        seed=42
+        seed=42,
     )
 
     main(dict_to_namespace(config))

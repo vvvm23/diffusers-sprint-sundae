@@ -15,6 +15,7 @@ from functools import partial
 from sundae.rotary_embeddings import broadcat, generate_embeddings, apply_rotary_emb
 from flax.linen.attention import dot_product_attention
 
+
 def exists(val):
     return val is not None
 
@@ -472,6 +473,7 @@ class HourglassTransformerLM(nn.Module):
             self.num_tokens,
             dtype=jnp.float32,
         )(x)
+
 
 class SundaeModel(nn.Module):
     config: dict

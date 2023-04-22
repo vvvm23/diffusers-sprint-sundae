@@ -10,6 +10,7 @@ from typing import Optional
 from vqgan_jax.utils import preprocess_vqgan
 from sundae import SundaeModel
 
+
 def build_fast_sample_loop(
     config: dict,
     vqgan: Optional[nn.Module],
@@ -19,7 +20,6 @@ def build_fast_sample_loop(
     temperature: float = 1.0,
     proportion: float = 0.5,
 ):
-
     def sample_loop(
         params,
         key: jax.random.PRNGKey,
@@ -29,7 +29,12 @@ def build_fast_sample_loop(
         assert (conditioning is None) == (text_encoder is None)
 
         key, subkey = jax.random.split(key)
-        x = jax.random.randint(subkey, (num_samples, config.model.max_seq_len*config.model.max_seq_len), 0, config.model.num_tokens)
+        x = jax.random.randint(
+            subkey,
+            (num_samples, config.model.max_seq_len * config.model.max_seq_len),
+            0,
+            config.model.num_tokens,
+        )
 
         if text_encoder is not None:
             conditioning = text_encoder(conditioning)
