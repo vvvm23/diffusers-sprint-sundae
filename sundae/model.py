@@ -493,8 +493,8 @@ class SundaeModel(nn.Module):
             shorten_factor=config.shorten_factor,
             resample_type=config.resample_type,
             heads=config.heads,
-            dim_head=config.dim_head,
-            rotary_emb_dim=config.rotary_emb_dim,
+            dim_head=config.dim // config.heads
+            rotary_emb_dim=config.dim // (config.heads * 2)
             max_seq_len=config.max_seq_len,
             parallel_block=config.parallel_block,
             tied_embedding=config.tied_embedding,

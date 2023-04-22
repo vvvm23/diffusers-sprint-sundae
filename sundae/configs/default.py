@@ -7,8 +7,8 @@ def get_config() -> mlc.ConfigDict:
     config = mlc.ConfigDict()
 
     config.train_fn = "unconditional"
-    config.batch_size = 32
-    config.seed = 0
+    config.batch_size = 64
+    config.seed = 0xABCD
     config.do_train = True
 
     config.data = dict(
@@ -25,17 +25,16 @@ def get_config() -> mlc.ConfigDict:
         config_name="sundae-default",
         num_tokens=16_384,
         dim=1024,
-        depth=[3, 12, 3],
+        depth=[2, 8, 2],
         shorten_factor=4,
         resample_type="linear",
         heads=8,
-        dim_head=64,
-        rotary_emb_dim=32,
         max_seq_len=32,  # effectively squared to 256
         parallel_block=False,
         tied_embedding=False,
         dtype="bfloat16",
     )
+
     config.text_encoder = dict(
         model_name_or_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
         from_pt=True,
@@ -48,8 +47,8 @@ def get_config() -> mlc.ConfigDict:
         steps=1_000_000,
         warmup_steps=4000,
         warmup_start_lr=1e-6,
-        end_learning_rate=3e-6,
-        max_grad_norm=5.0,
+        end_learning_rate_scale=100,
+        max_grad_norm=10.0,
         weight_decay=0.0,
         temperature=1.0,
         batches=(4000, 200),
