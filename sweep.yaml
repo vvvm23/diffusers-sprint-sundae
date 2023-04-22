@@ -1,6 +1,6 @@
 name: diffusers-sprint-sundae
 description: try different stuff to do more stuff
-program: main.py --config sundae/configs/default.py --config.train_fn=unconditional
+program: main.py
 method: random
 early_terminate:
   type: hyperband
@@ -9,6 +9,13 @@ metric:
   name: eval.loss
   goal: minimize
 parameters:
+  config: 
+    value: sundae/configs/default.py
+  config.train_fn:
+    value: unconditional
+  config.enable_checkpointing:
+    value: false
+
   config.batch_size:
     distribution: constant
     value: 16
@@ -26,7 +33,7 @@ parameters:
     distribution: categorical
     values: [0.0005, 0.0001, 0.00005, 0.00001, 0.000005]
   config.training.end_learning_rate_scale:
-    distribution: constant
+    distribution: categorical
     values: [10, 100]
   config.training.weight_decay:
     distribution: constant

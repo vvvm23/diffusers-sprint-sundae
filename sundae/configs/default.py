@@ -63,5 +63,6 @@ def get_config() -> mlc.ConfigDict:
 
     config.debug_nans = False
     config.log_compile = False
+    config.enable_checkpointing = True
 
     return config
