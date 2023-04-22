@@ -472,8 +472,6 @@ class HourglassTransformerLM(nn.Module):
             self.num_tokens,
             dtype=jnp.float32,
         )(x)
-        # return nn.Dense(self.num_tokens, dtype=jnp.float32)(x)
-
 
 class SundaeModel(nn.Module):
     config: dict

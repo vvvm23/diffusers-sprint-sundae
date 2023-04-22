@@ -24,12 +24,14 @@ import datetime
 from pathlib import Path
 
 import tqdm
+from math import sqrt
 
 import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
 from vqgan_jax.utils import custom_to_pil
 
 from train_utils import build_train_step, create_train_state
+from sample_utils import build_fast_sample_loop
 from utils import dict_to_namespace, infinite_loader
 from sundae.model import SundaeModel
 
@@ -119,6 +121,8 @@ def main(config):
 
     train_step = build_train_step(config, vqgan=vqgan, train=True)
     eval_step = build_train_step(config, vqgan=vqgan, train=False)
+    # TODO: param all this
+    sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5)
     state = flax.jax_utils.replicate(state)
 
     if config.report_to_wandb:
@@ -129,6 +133,7 @@ def main(config):
 
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0))
+    pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0))
 
     step = 0
     while step < config.training.steps:
@@ -202,29 +207,16 @@ def main(config):
             step=step,
         )
 
-        # TODO: pjit sample?
         logging.info("sampling from current model")
         key, subkey = jax.random.split(key)
-        # TODO: param all this
-        sample_model = SundaeModel(config.model)
-        sample_model.params = flax.jax_utils.unreplicate(
-            state
-        ).params  # TODO: do we need to unreplicate all? or just params?
-        sample = sample_model.sample(
-            subkey,
-            num_samples=4,
-            steps=100,
-            temperature=0.7,
-            proportion=0.4,
-            early_stop=False,
-            progress=False,
-            return_history=False,
-        )  # TODO: param this
-        decoded_image = jax.jit(vqgan.decode_code)(sample)
+        subkeys = jax.random.split(subkey, replication_factor)
+        img = pmap_sample_loop(state.params, subkeys)
+        img = jnp.reshape(img, (-1, config.data.image_size, config.data.image_size, 3))
+        sqrt_num_images = int(sqrt(img.shape[0]))
         img = custom_to_pil(
             np.asarray(
                 einops.rearrange(
-                    decoded_image, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=2, b2=2
+                    img, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=sqrt_num_images, b2=img.shape[0] // sqrt_num_images
                 )
             )
         )
