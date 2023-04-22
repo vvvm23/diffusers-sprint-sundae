@@ -1,0 +1,12 @@
+## Sundae Text-to-Image Training Journal
+
+I was inspired by Boris' training journal which I was reminded existed during his kick off talk for the event.
+Here are my own rough notes of tuning parameters and the main training progress.
+We don't have time for a super deep search of hyperparameters parameters, but let us do what we can, as we will only have one shot :)
+
+### Where we are starting from
+> 2023/04/22
+
+Got nearly all the components together, just need the data loader and sweep infrastructure.
+
+Boris mentioned one of the most important parameters to tune is learning rate but it doesn't translate well with scaling, so we should leave it last but it is still most important.
