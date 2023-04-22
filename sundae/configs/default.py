@@ -16,9 +16,15 @@ def get_config() -> mlc.ConfigDict:
         num_workers=8,
         train_dir="",
         validation_dir="",
+        train_file="",
+        eval_file="",
+        captions_column_name="caption",
         overwrite_cache=True,
         flip_p=0.5,
         image_size=256,
+        max_train_samples=-1,
+        max_eval_samples=-1,
+        validation_split_percentage=10
     )
     config.model = dict(
         model_name_or_path="sundae-default",
