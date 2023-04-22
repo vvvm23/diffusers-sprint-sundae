@@ -444,15 +444,6 @@ class HourglassTransformerLM(nn.Module):
             )(jnp.arange(x.shape[1]))
             x = x + einops.rearrange(pos_emb, "n d -> () n d")
 
-        # we apply traditional positional embeddings to context, as can't apply rotary when context is on
-        if context is not None:
-            context_pos_emb = nn.Embed(
-                context.shape[1],
-                self.dim,
-                dtype=dtype,
-            )(jnp.arange(context.shape[1]))
-            context = context + context_pos_emb
-
         x = HourglassTransformer(
             depth=self.depth,
             shorten_factor=self.shorten_factor,
