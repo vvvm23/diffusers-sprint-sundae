@@ -10,3 +10,5 @@ We don't have time for a super deep search of hyperparameters parameters, but le
 Got nearly all the components together, just need the data loader and sweep infrastructure.
 
 Boris mentioned one of the most important parameters to tune is learning rate but it doesn't translate well with scaling, so we should leave it last but it is still most important.
+
+I'll be following [this guide](https://github.com/google-research/tuning_playbook#choosing-a-model-architecture)
