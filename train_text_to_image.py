@@ -1,3 +1,21 @@
+from typing import (
+    Generator,
+    Callable, 
+    Optional,
+    Sequence,
+    Literal,
+    Union,
+    Tuple,
+    Dict
+)
+
+import datetime
+import functools
+from math import sqrt
+from pathlib import Path
+
+import numpy as np
+
 import jax
 from jax import numpy as jnp
 from jax.typing import ArrayLike
@@ -5,14 +23,16 @@ from jax.typing import ArrayLike
 import flax
 import flax.linen as nn
 from flax.training import orbax_utils
+
 import orbax.checkpoint
 
 import einops
 
-from typing import Callable, Optional, Sequence, Union, Literal
 from absl import logging
+import ml_collections as mlc
 
-import numpy as np
+import tqdm
+import wandb
 
 from transformers import (
     FlaxCLIPTextModel,
@@ -24,66 +44,146 @@ from torch.utils.data import DataLoader
 import torchvision.transforms as T
 from torchvision.datasets import ImageFolder
 
-import datetime
-from pathlib import Path
-from math import sqrt
-
-import tqdm
-
 import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
 from vqgan_jax.utils import custom_to_pil
 
-from train_utils import build_train_step, create_train_state
+from train_utils import (
+    build_train_step, 
+    create_train_state
+)
 from sample_utils import build_fast_sample_loop
-from utils import dict_to_namespace, infinite_loader
+from utils import (
+    dict_to_namespace, 
+    infinite_loader
+)
 
-# Hatman: added imports for wandb, argparse, and bunch
-import wandb
-from bunch import Bunch
+from datasets import (
+    load_dataset,
+    Dataset
+)
 
-def load_text_encoder(config) -> FlaxCLIPTextModel:
+
+def load_text_encoder(config: mlc.ConfigDict) -> FlaxCLIPTextModel:
     text_encoder = FlaxCLIPTextModel.from_pretrained(
         config.text_encoder.model_name_or_path, 
         from_pt=config.text_encoder.from_pt
     )
     return text_encoder
 
-def load_tokenizer(config) -> Union[CLIPTokenizer, CLIPTokenizerFast]:
+
+def load_tokenizer(config: mlc.ConfigDict) -> Union[CLIPTokenizer, CLIPTokenizerFast]:
     Tokenizer = CLIPTokenizerFast if config.text_encoder.use_fast_tokenizer else CLIPTokenizer
     tokenizer = Tokenizer.from_pretrained(config.text_encoder.model_name_or_path)
     return tokenizer
 
-def compute_classifer_free_embedding(config, encoder: FlaxCLIPTextModel, tokenizer: CLIPTokenizer):
-    prompt = [""]
-    tokens = tokenizer(prompt, padding="max_length", max_length=config.text_encoder.max_length, return_tensors='np')
-    embedding = encoder(tokens)
-    return embedding
 
-# TODO: unify data loading in a different file
-# TODO: text to image dataset
-def get_data_loader(
-    name: Literal["ffhq256"], batch_size: int = 1, num_workers: int = 0
-):
-    if name in ["ffhq256"]:
-        dataset = ImageFolder(
-            "data/ffhq256",
-            transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
+def tokenize_fn(
+    examples: Dict[str, Any], 
+    tokenizer: Tokenizer, 
+    captions_column_name: str = "caption"
+) -> Dict[str, Any]:
+    captions = examples[captions_column_name]
+    inputs = tokenizer(
+        captions, 
+        max_length=tokenizer.model_max_length, 
+        padding="max_length", 
+        truncation=True,
+        return_tensors="np"
+    )
+    examples["input_ids"] = inputs.input_ids
+    return examples
+
+
+def load_datasets(
+    config: mlc.ConfigDict, 
+    tokenizer: Tokenizer
+) -> Tuple[Dataset, Dataset]:
+    data_files = {
+        "train": config.data.train_file
+    }
+    if config.data.eval_file:
+        data_files["test"] = config.data.eval_file
+
+    datasets = load_dataset(
+        config.data.name, 
+        data_files=data_files
+    )
+
+    if "eval" not in data_files:
+        datasets = datasets["train"].train_test_split(
+            test_size=config.data.validation_split_percentage / 100,
+            seed=config.seed
         )
-    else:
-        raise ValueError(f"unrecognised dataset name '{name}'")
+    train_dataset = datasets["train"]
+    eval_dataset = datasets["test"]
 
+    _tokenize_fn = functools.partial(
+        tokenize_fn,
+        tokenizer=tokenizer,
+        captions_column_name=config.data.captions_column_name
+    )
+
+    if jax.process_index() == 0:
+        train_dataset = train_dataset.map(
+            _tokenize_fn,
+            batched=True,
+            num_proc=config.data.preprocessing_num_workers,
+            remove_columns=[config.data.captions_column_name],
+            load_from_cache_file=not config.data.overwrite_cache,
+            desc="Running tokenizer on every caption in train dataset"
+        )
+        train_dataset = train_dataset.with_format("numpy")
+
+        eval_dataset = eval_dataset.map(
+            _tokenize_fn,
+            batched=True,
+            num_proc=config.data.preprocessing_num_workers,
+            remove_columns=[config.data.captions_column_name],
+            load_from_cache_file=not config.data.overwrite_cache,
+            desc="Running tokenizer on every caption in train dataset"
+        )
+        eval_dataset = eval_dataset.with_format("numpy")
+
+    return train_dataset, eval_dataset
+
+
+def collate_fn(examples: Dict[str, Any], device_count: int) -> Dict[str, Any]:
+    rearrange = functools.partial(
+        einops.rearrange, 
+        pattern="(d b) n -> d b n",
+        d=device_count
+    )
+    examples["input_ids"] = rearrange(examples["input_ids"])
+    examples["encoding"] = rearrange(examples["encoding"])
+    return examples
+
+
+def create_loader(
+    config: mlc.ConfigDict, 
+    dataset: Dataset, 
+    per_device_batch_size: Optional[int] = None,
+    shuffle: bool = True,
+    drop_last: bool = True
+) -> Generator[Dict[str, Any], None, None]:
+    per_device_batch_size = per_device_batch_size or config.per_device_batch_size
+    total_batch_size = per_device_batch_size * jax.device_count()
+    _collate_fn = functools.partial(
+        collate_fn,
+        device_count=jax.device_count()
+    )
     loader = DataLoader(
         dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        drop_last=True,
-        num_workers=num_workers,
+        batch_size=total_batch_size,
+        shuffle=shuffle,
+        num_workers=config.data.num_workers,
+        collate_fn=_collate_fn,
+        drop_last=drop_last
     )
-    return dataset, loader
+    return infinite_loader(loader)
 
 
-def main(config):
+def main(config: mlc.ConfigDict) -> None:
     jax.distributed.initialize()
     devices = jax.devices()
     replication_factor = len(devices)
@@ -105,42 +205,104 @@ def main(config):
         save_name, orbax_checkpointer, checkpoint_opts
     )
 
-    logging.info(f"Loading dataset '{config.data.name}'")
-    _, train_loader = get_data_loader(
-        config.data.name, config.batch_size, config.data.num_workers, train=True
-    )
-    _, eval_loader = get_data_loader(
-        config.data.name,
-        config.batch_size * 2,
-        config.data.num_workers,
-        train=False,
-    )
-    train_iter = infinite_loader(train_loader)
-    eval_iter = infinite_loader(eval_loader)
+    logging.info(f"Loading tokenizer")
+    tokenizer = load_tokenizer(config)
 
-    logging.info(f"Loading VQ-GAN")
-    vqgan_dtype = getattr(jnp, config.vqgan.dtype)
-    vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
-        config.vqgan.name, dtype=vqgan_dtype
+    logging.info(f"Loading dataset")
+    train_dataset, eval_dataset = load_datasets(config, tokenizer)
+    train_loader = create_loader(
+        config,
+        train_dataset
     )
+    eval_loader = create_loader(
+        config,
+        eval_dataset,
+        per_device_batch_size=config.per_device_batch_size * 2,
+        shuffle=False
+    )
+
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config, has_context=True)
     save_args = orbax_utils.save_args_from_target(state)
 
     logging.info(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
 
-    logging.info("Loading CLIPTokenizer")
-    tokenizer = load_tokenizer(config)
-
     logging.info(f"Loading FlaxCLIPTextModel")
     text_encoder = load_text_encoder(config)
 
-    classifier_free_embedding = compute_classifer_free_embedding(config, text_encoder, tokenizer)
+    # TODO: Fix classifier-free-guidance
+    # classifier_free_embedding = compute_classifer_free_embedding(config, text_encoder, tokenizer)
 
-    train_step = build_train_step(config, vqgan=vqgan, train=True, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
-    eval_step = build_train_step(config, vqgan=vqgan, train=False, text_encoder=text_encoder)
+    def update_step(
+        state: Any, 
+        batch: Dict[str, Any], 
+        key: jax.random.PRNGKey, 
+        conditioning: Optional[ArrayLike] = None
+        train: bool = True
+    ) -> Tuple[Any, float]:
+        token_ids = batch["input_ids"]
+        vqgan_ids = batch["encoding"]
+        model = SundaeModel(config.model)
+
+        # assert (conditioning is None) == (text_encoder is None)
+
+        # if text_encoder exists, assume input `conditioning` is tokens and compute embeddings
+        # if doesn't exist, we are probably operating in unconditionally, hence skip.
+        # we assume the above as precomputing embeddings is too expensive storage-wise
+        # for debugging, just make `text_encoder` a callable that returns a constant
+        # note, even when operating in a classifier-free way, we still pass an empty string, and hence a token sequence
+        # TODO: Fix classifier-free-guidance
+        # if text_encoder is not None:
+        #     if classifier_free_embedding is not None and config.training.conditioning_dropout > 0.0:
+        #         key, subkey = jax.random.split(key)
+        #         mask = jax.random.uniform(subkey, (conditioning.shape[0],)) < config.training.conditioning_dropout
+        #         conditioning = einops.repeat(classifier_free_embedding, '1 ... -> n ...', n=conditioning.shape[0]) * mask + text_encoder(conditioning) * ~mask
+        #     else:
+        #         conditioning = text_encoder(conditioning)
+        conditioning = text_encoder(token_ids)
+
+        def loss_fn(params, key):
+            all_logits = []
+            key, subkey = jax.random.split(key)
+            samples = corrupt_batch(vqgan_ids, subkey, config.model.num_tokens)
+            for i in range(
+                config.training.unroll_steps
+            ):  # TODO: replace with real jax loop, otherwise compile time scales with num iters.
+                key, subkey = jax.random.split(key)
+                logits = model.apply({"params": params}, samples, context=conditioning)
+                all_logits.append(logits)
+
+                if config.training.temperature > 0.0:
+                    samples = jax.random.categorical(
+                        subkey, logits / config.training.temperature, axis=-1
+                    )
+                else:
+                    samples = logits.argmax(axis=-1)
+                samples = jax.lax.stop_gradient(samples)
+
+            logits = jnp.concatenate(all_logits)
+            repeat_batch = jnp.concatenate([x] * config.training.unroll_steps)
+            total_loss = cross_entropy(logits, repeat_batch)
+            total_accuracy = (logits.argmax(axis=-1) == repeat_batch).mean()
+
+            return total_loss, 100.0 * total_accuracy
+
+        if train:
+            (loss, accuracy), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+                state.params, key
+            )
+            grads = jax.lax.pmean(grads, "replication_axis")
+            new_state = state.apply_gradients(grads=grads)
+
+            return new_state, loss, accuracy
+
+        loss, accuracy = loss_fn(state.params, key)
+        return loss, accuracy
+
+    train_step = update_step(config, train=True)
+    eval_step = update_step(config, train=False)
     # TODO: param all this
-    sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder)
+    # sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder)
     state = flax.jax_utils.replicate(state)
 
     if config.report_to_wandb:
@@ -150,8 +312,7 @@ def main(config):
 
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0, 0))
-    pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0, 0))
-    
+    # pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0, 0))
 
     step = 0
     while step < config.training.step:
@@ -159,14 +320,7 @@ def main(config):
 
         pb = tqdm.trange(config.training.batches[0])
         for i in enumerate(pb):
-            batch, prompt = next(train_iter)
-            batch = einops.rearrange(
-                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor
-            )
-            tokens = tokenizer(prompt, padding='max_length', max_length=config.text_encoder.max_length, return_tensors='np')
-            tokens = einops.rearrange(
-                tokens, "(r b) n -> r b n", r=replication_factor
-            )
+            batch = next(train_iter)
 
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
@@ -199,15 +353,7 @@ def main(config):
         metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.trange(config.training.batches[1])
         for i in pb:
-            batch, prompt = next(eval_iter)
-            batch = einops.rearrange(
-                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor, c=3
-            )
-            tokens = tokenizer(prompt, padding='max_length', max_length=config.text_encoder.max_length, return_tensors='np')
-            tokens = einops.rearrange(
-                tokens.numpy(), "(r b) n -> r b n", r=replication_factor
-            )
-
+            batch = next(eval_iter)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
             state, loss, accuracy = pmap_eval_step(state, batch, subkeys, conditioning=tokens) # TODO: add donate args, memory save on params
