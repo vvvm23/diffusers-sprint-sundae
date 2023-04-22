@@ -1,5 +1,5 @@
 name: diffusers-sprint-sundae
-description: try different stuff to do more stuff
+description: Unconditional model sweeping for testing
 program: main.py
 method: random
 early_terminate:
@@ -18,14 +18,14 @@ parameters:
 
   config.batch_size:
     distribution: constant
-    value: 16
+    value: 64
 
   config.training.steps:
     distribution: constant
-    value: 10000
+    value: 6000
   config.training.warmup_steps:
     distribution: constant
-    value: 2000
+    value: 1000
   config.training.unroll_steps:
     distribution: constant
     value: 2
@@ -49,9 +49,6 @@ parameters:
     distribution: constant
     value: 1024
   config.model.parallel_block:
-    distribution: categorical
-    values: [true, false]
-  config.model.tied_embedding:
     distribution: categorical
     values: [true, false]
   config.model.heads:

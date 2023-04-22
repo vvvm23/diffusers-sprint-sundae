@@ -218,7 +218,8 @@ def main(config):
                 )
             )
         )
-        img.save(Path(save_name) / f"sample-{step:08}.jpg")
+        if config.enable_checkpointing:
+            img.save(Path(save_name) / f"sample-{step:08}.jpg")
         wandb.log({"sample": wandb.Image(img)}, commit=True, step=step)
 
 

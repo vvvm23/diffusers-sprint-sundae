@@ -7,13 +7,13 @@ def get_config() -> mlc.ConfigDict:
     config = mlc.ConfigDict()
 
     config.train_fn = "unconditional"
-    config.batch_size = 64
-    config.seed = 0xABCD
+    config.batch_size = 32
+    config.seed = 0
     config.do_train = True
 
     config.data = dict(
         name="ffhq256",
-        num_workers=4,
+        num_workers=8,
         train_dir="",
         validation_dir="",
         overwrite_cache=True,
@@ -34,7 +34,6 @@ def get_config() -> mlc.ConfigDict:
         tied_embedding=False,
         dtype="bfloat16",
     )
-
     config.text_encoder = dict(
         model_name_or_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
         from_pt=True,
@@ -48,10 +47,10 @@ def get_config() -> mlc.ConfigDict:
         warmup_steps=4000,
         warmup_start_lr=1e-6,
         end_learning_rate_scale=100,
-        max_grad_norm=10.0,
+        max_grad_norm=5.0,
         weight_decay=0.0,
         temperature=1.0,
-        batches=(4000, 200),
+        batches=(2000, 500),
         conditioning_dropout = 0.2
     )
     config.vqgan = dict(name="vq-f8", dtype="bfloat16")
