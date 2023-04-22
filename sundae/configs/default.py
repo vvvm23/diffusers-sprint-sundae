@@ -40,6 +40,7 @@ def get_config() -> mlc.ConfigDict:
         model_name_or_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
         from_pt=True,
         use_fast_tokenizer=True,
+        max_length = 77,
     )
     config.training = dict(
         learning_rate=4e-4,

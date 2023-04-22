@@ -1,40 +1,59 @@
 import jax
-from jax import lax, numpy as jnp
+from jax import numpy as jnp
 from jax.typing import ArrayLike
 
 import flax
 import flax.linen as nn
-from flax.training import train_state, checkpoints, orbax_utils
+from flax.training import orbax_utils
 import orbax.checkpoint
 
-import optax
 import einops
 
 from typing import Callable, Optional, Sequence, Union, Literal
+from absl import logging
 
 import numpy as np
 
+from transformers import (
+    FlaxCLIPTextModel,
+    CLIPTokenizer,
+    CLIPTokenizerFast
+)
+
 from torch.utils.data import DataLoader
 import torchvision.transforms as T
-from torchvision.datasets import MNIST, ImageFolder
+from torchvision.datasets import ImageFolder
 
 import datetime
 from pathlib import Path
+from math import sqrt
 
 import tqdm
 
 import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
+from vqgan_jax.utils import custom_to_pil
 
-from sundae import SundaeModel
 from train_utils import build_train_step, create_train_state
-from utils import dict_to_namespace
+from sample_utils import build_fast_sample_loop
+from utils import dict_to_namespace, infinite_loader
 
 # Hatman: added imports for wandb, argparse, and bunch
 import wandb
-import argparse
 from bunch import Bunch
 
+def load_text_encoder(config) -> FlaxCLIPTextModel:
+    text_encoder = FlaxCLIPTextModel.from_pretrained(
+        config.text_encoder.model_name_or_path, 
+        from_pt=config.text_encoder.from_pt
+    )
+    return text_encoder
+
+
+def load_tokenizer(config) -> Union[CLIPTokenizer, CLIPTokenizerFast]:
+    Tokenizer = CLIPTokenizerFast if config.text_encoder.use_fast_tokenizer else CLIPTokenizer
+    tokenizer = Tokenizer.from_pretrained(config.text_encoder.model_name_or_path)
+    return tokenizer
 
 # TODO: unify data loading in a different file
 # TODO: text to image dataset
@@ -59,87 +78,167 @@ def get_data_loader(
     return dataset, loader
 
 
-def main(config, args):
-    print("Config:", config)
-    print("Args:", args)
-
+def main(config):
+    jax.distributed.initialize()
     devices = jax.devices()
-    print("JAX devices:", devices)
     replication_factor = len(devices)
 
-    key = jax.random.PRNGKey(args.seed)
-    print("Random seed:", args.seed)
+    key = jax.random.PRNGKey(config.seed)
+    logging.info("Random seed:", config.seed)
 
-    print(f"Loading dataset '{config.data.name}'")
-    _, loader = get_data_loader(
-        config.data.name, config.data.batch_size, config.data.num_workers
-    )
-
-    print(f"Loading VQ-GAN")
-    vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
-        config.vqgan.name, dtype=config.vqgan.dtype
-    )
-
-    key, subkey = jax.random.split(key)
-    state = create_train_state(subkey, config)
-    state = flax.jax_utils.replicate(state)
-
-    save_name = datetime.datetime.now().strftime("sundae-checkpoints_%Y-%d-%m_%H-%M-%S")
-    Path(save_name).mkdir()
-    print(f"Saving checkpoints to directory {save_name}")
-    train_step = build_train_step(config, vqgan)
-
-    # TODO: wandb logging plz: Hatman
-    # TODO: need flag to toggle on and off otherwise we will pollute project
-    # wandb.init(project="diffusers-sprint-sundae", config=config)
-
-    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    # TODO: add drive root param
+    save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("text-to-image-checkpoints_%Y-%d-%m_%H-%M-%S")
+    save_name.mkdir()
+    logging.info(f"Working directory '{save_name}'")
+    orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointHandler())
     checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
-        keep_period=10, max_to_keep=2, create=True
+        keep_period=config.checkpoint.keep_period,
+        max_to_keep=config.checkpoint.max_to_keep,
+        create=True,
     )
     checkpoint_manager = orbax.checkpoint.CheckpointManager(
         save_name, orbax_checkpointer, checkpoint_opts
     )
+
+    logging.info(f"Loading dataset '{config.data.name}'")
+    _, train_loader = get_data_loader(
+        config.data.name, config.batch_size, config.data.num_workers, train=True
+    )
+    _, eval_loader = get_data_loader(
+        config.data.name,
+        config.batch_size * 2,
+        config.data.num_workers,
+        train=False,
+    )
+    train_iter = infinite_loader(train_loader)
+    eval_iter = infinite_loader(eval_loader)
+
+    logging.info(f"Loading VQ-GAN")
+    vqgan_dtype = getattr(jnp, config.vqgan.dtype)
+    vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
+        config.vqgan.name, dtype=vqgan_dtype
+    )
+    key, subkey = jax.random.split(key)
+    state = create_train_state(subkey, config, has_context=True)
     save_args = orbax_utils.save_args_from_target(state)
 
-    log_interval = 64
-    for ei in range(config.training.epochs):
-        total_loss = 0.0
-        total_accuracy = 0.0
+    logging.info(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
 
-        wandb_metrics = dict(loss=0.0, accuracy=0.0)
-        pb = tqdm.tqdm(loader)
-        for i, (batch, _) in enumerate(pb):
+    logging.info("Loading CLIPTokenizer")
+    tokenizer = load_tokenizer(config)
+
+    logging.info(f"Loading FlaxCLIPTextModel")
+    text_encoder = load_text_encoder(config)
+
+    train_step = build_train_step(config, vqgan=vqgan, train=True, text_encoder=text_encoder)
+    eval_step = build_train_step(config, vqgan=vqgan, train=False, text_encoder=text_encoder)
+    # TODO: param all this
+    sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder)
+    state = flax.jax_utils.replicate(state)
+
+    if config.report_to_wandb:
+        wandb.init(project="diffusers-sprint-sundae", config=config)
+    else:
+        wandb.init(mode="disabled")
+
+    pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0, 0))
+    pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0, 0))
+    pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0, 0))
+
+    step = 0
+    while step < config.training.step:
+        metrics = dict(loss=0.0, accuracy=0.0)
+
+        pb = tqdm.trange(config.training.batches[0])
+        for i in enumerate(pb):
+            batch, prompt = next(train_iter)
             batch = einops.rearrange(
                 batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor
             )
+            tokens = tokenizer(prompt, padding='max_length', max_length=config.text_encoder.max_length, return_tensors='np')
+            tokens = einops.rearrange(
+                tokens, "(r b) n -> r b n", r=replication_factor
+            )
+
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = jax.pmap(
-                train_step, "replication_axis", in_axes=(0, 0, 0)
-            )(
-                state, batch, subkeys
-            )  # TODO: add donate args, memory save on params
-
+            state, loss, accuracy = pmap_train_step(state, batch, subkeys, conditioning=tokens) # TODO: add donate args, memory save on params
             loss, accuracy = loss.mean(), accuracy.mean()
-            total_loss += loss
-            total_accuracy += accuracy
 
-            wandb_metrics["loss"] += loss
-            wandb_metrics["accuracy"] += accuracy
+            metrics["loss"] += loss
+            metrics["accuracy"] += accuracy
 
             pb.set_description(
-                f"[epoch {ei+1}] loss: {total_loss / (i+1):.6f}, accuracy {total_accuracy / (i+1):.2f}"
+                f"[step {step+1:,}/{config.training.steps:,}] [train] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
             )
-            if i % log_interval == 0:
-                wandb_metrics["loss"] /= log_interval
-                wandb_metrics["accuracy"] /= log_interval
-                # wandb.log(wandb_metrics)
+            step += 1
 
-        checkpoint_manager.save(
-            ei, flax.jax_utils.unreplicate(state), save_kwargs={"save_args": save_args}
+        wandb.log(
+            {
+                "train": {
+                    "loss": metrics["loss"] / (i + 1),
+                    "accuracy": metrics["accuracy"] / (i + 1),
+                }
+            },
+            commit=False,
+            step=step,
         )
 
+        checkpoint_manager.save(
+            step, flax.jax_utils.unreplicate(state), save_kwargs={"save_args": save_args}
+        )
+
+        metrics = dict(loss=0.0, accuracy=0.0)
+        pb = tqdm.trange(config.training.batches[1])
+        for i in pb:
+            batch, prompt = next(eval_iter)
+            batch = einops.rearrange(
+                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor, c=3
+            )
+            tokens = tokenizer(prompt, padding='max_length', max_length=config.text_encoder.max_length, return_tensors='np')
+            tokens = einops.rearrange(
+                tokens.numpy(), "(r b) n -> r b n", r=replication_factor
+            )
+
+            key, subkey = jax.random.split(key)
+            subkeys = jax.random.split(subkey, replication_factor)
+            state, loss, accuracy = pmap_eval_step(state, batch, subkeys, conditioning=tokens) # TODO: add donate args, memory save on params
+            loss, accuracy = loss.mean(), accuracy.mean()
+
+            metrics["loss"] += loss
+            metrics["accuracy"] += accuracy
+
+            pb.set_description(
+                f"[step {step+1:,}/{config.training.steps:,}] [eval] loss: {metrics['loss'] / (i+1):.6f}, accuracy {metrics['accuracy'] / (i+1):.2f}"
+            )
+
+        wandb.log(
+            {
+                "eval": {
+                    "loss": metrics["loss"] / (i + 1),
+                    "accuracy": metrics["accuracy"] / (i + 1),
+                }
+            },
+            commit=False,
+            step=step,
+        )
+
+        # TODO: how do we want to prompt this?
+        # logging.info("sampling from current model")
+        # key, subkey = jax.random.split(key)
+        # subkeys = jax.random.split(subkey, replication_factor)
+        # img = pmap_sample_loop(state.params, subkeys)
+        # img = jnp.reshape(img, (-1, config.data.image_size, config.data.image_size, 3))
+        # sqrt_num_images = int(sqrt(img.shape[0]))
+        # img = custom_to_pil(
+        #     np.asarray(
+        #         einops.rearrange(
+        #             img, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=sqrt_num_images, b2=img.shape[0] // sqrt_num_images
+        #         )
+        #     )
+        # )
+        # img.save(Path(save_name) / f"sample-{step:08}.jpg")
+        # wandb.log({"sample": wandb.Image(img)}, commit=True, step=step)
 
 if __name__ == "__main__":
     # TODO: add proper argparsing!: Hatman
@@ -200,6 +299,11 @@ if __name__ == "__main__":
             epochs=100,  # TODO: maybe replace with train steps
             max_grad_norm=1.0,
             weight_decay=1e-2,
+        ),
+        text_encoder=dict(
+            model_name_or_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
+            from_pt=True,
+            use_fast_tokenizer=True
         ),
         vqgan=dict(name="vq-f8-n256", dtype=jnp.float32),
         jit_enabled=True,

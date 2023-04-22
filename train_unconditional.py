@@ -126,7 +126,6 @@ def main(config):
     else:
         wandb.init(mode="disabled")
 
-
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0))
     pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0))
