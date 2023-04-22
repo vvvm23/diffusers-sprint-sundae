@@ -15,7 +15,7 @@ def get_config() -> mlc.ConfigDict:
         name="ffhq256",
         num_workers=4,
         train_dir="",
-        validation_dir="",        
+        validation_dir="",
         overwrite_cache=True,
         flip_p=0.5,
         image_size=256,
@@ -25,13 +25,13 @@ def get_config() -> mlc.ConfigDict:
         config_name="sundae-default",
         num_tokens=16_384,
         dim=1024,
-        depth=[2, 12, 2],
+        depth=[3, 12, 3],
         shorten_factor=4,
         resample_type="linear",
         heads=8,
         dim_head=64,
         rotary_emb_dim=32,
-        max_seq_len=16, # effectively squared to 256
+        max_seq_len=32,  # effectively squared to 256
         parallel_block=False,
         tied_embedding=False,
         dtype="bfloat16",
@@ -39,7 +39,7 @@ def get_config() -> mlc.ConfigDict:
     config.text_encoder = dict(
         model_name_or_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
         from_pt=True,
-        use_fast_tokenizer=True
+        use_fast_tokenizer=True,
     )
     config.training = dict(
         learning_rate=4e-4,
@@ -51,12 +51,9 @@ def get_config() -> mlc.ConfigDict:
         max_grad_norm=5.0,
         weight_decay=0.0,
         temperature=1.0,
-        batches=(4000, 200)
+        batches=(4000, 200),
     )
-    config.vqgan = dict(
-        name="vq-f16", 
-        dtype="bfloat16"
-    )
+    config.vqgan = dict(name="vq-f8", dtype="bfloat16")
 
     config.checkpoint = dict(keep_period=100, max_to_keep=3)
 
@@ -65,5 +62,5 @@ def get_config() -> mlc.ConfigDict:
 
     config.debug_nans = False
     config.log_compile = False
-    
+
     return config
