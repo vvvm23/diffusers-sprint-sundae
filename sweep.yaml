@@ -18,20 +18,20 @@ parameters:
 
   config.batch_size:
     distribution: constant
-    value: 64
+    value: 32
 
   config.training.steps:
     distribution: constant
-    value: 12000
+    value: 8000
   config.training.warmup_steps:
     distribution: constant
-    value: 2000
+    value: 1000
   config.training.unroll_steps:
     distribution: constant
     value: 2
   config.training.end_learning_rate_scale:
     distribution: constant
-    value: 100
+    value: 10
   config.training.weight_decay:
     distribution: constant
     value: 0.0
@@ -41,7 +41,7 @@ parameters:
 
   config.training.learning_rate:
     distribution: categorical
-    values: [0.0005, 0.0001, 0.001]
+    values: [0.0005, 0.0001, 0.00005, 0.00001]
 
   config.model.shorten_factor:
     distribution: constant

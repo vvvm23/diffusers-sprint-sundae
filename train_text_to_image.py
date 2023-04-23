@@ -233,7 +233,7 @@ def main(config: mlc.ConfigDict) -> None:
     eval_step = build_train_step(config, train=False, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
 
     # TODO: param all this, also can we only pass vqgan decoder params?
-    num_samples = 4
+    num_samples = 1
     sample_prompts = ["An armchair in the shape of an avacado"]*num_samples*replication_factor
     sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder, num_samples=num_samples)
     state = flax.jax_utils.replicate(state)
