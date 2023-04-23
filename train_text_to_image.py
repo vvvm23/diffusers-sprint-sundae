@@ -1,3 +1,21 @@
+from typing import (
+    Generator,
+    Callable, 
+    Optional,
+    Sequence,
+    Literal,
+    Union,
+    Tuple,
+    Dict
+)
+
+import datetime
+import functools
+from math import sqrt
+from pathlib import Path
+
+import numpy as np
+
 import jax
 from jax import numpy as jnp
 from jax.typing import ArrayLike
@@ -5,14 +23,16 @@ from jax.typing import ArrayLike
 import flax
 import flax.linen as nn
 from flax.training import orbax_utils
+
 import orbax.checkpoint
 
 import einops
 
-from typing import Callable, Optional, Sequence, Union, Literal
 from absl import logging
+import ml_collections as mlc
 
-import numpy as np
+import tqdm
+import wandb
 
 from transformers import (
     FlaxCLIPTextModel,
@@ -22,37 +42,144 @@ from transformers import (
 
 from torch.utils.data import DataLoader
 import torchvision.transforms as T
-from torchvision.datasets import ImageFolder
-
-import datetime
-from pathlib import Path
-from math import sqrt
-
-import tqdm
 
 import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
 from vqgan_jax.utils import custom_to_pil
 
-from train_utils import build_train_step, create_train_state
+from train_utils import (
+    build_train_step, 
+    create_train_state
+)
 from sample_utils import build_fast_sample_loop
-from utils import dict_to_namespace, infinite_loader
+from utils import (
+    dict_to_namespace, 
+    infinite_loader
+)
 
-# Hatman: added imports for wandb, argparse, and bunch
-import wandb
-from bunch import Bunch
+from datasets import (
+    load_dataset,
+    Dataset
+)
 
-def load_text_encoder(config) -> FlaxCLIPTextModel:
+
+def load_text_encoder(config: mlc.ConfigDict) -> FlaxCLIPTextModel:
     text_encoder = FlaxCLIPTextModel.from_pretrained(
         config.text_encoder.model_name_or_path, 
         from_pt=config.text_encoder.from_pt
     )
     return text_encoder
 
-def load_tokenizer(config) -> Union[CLIPTokenizer, CLIPTokenizerFast]:
+
+def load_tokenizer(config: mlc.ConfigDict) -> Union[CLIPTokenizer, CLIPTokenizerFast]:
     Tokenizer = CLIPTokenizerFast if config.text_encoder.use_fast_tokenizer else CLIPTokenizer
     tokenizer = Tokenizer.from_pretrained(config.text_encoder.model_name_or_path)
     return tokenizer
+
+
+def tokenize_fn(
+    examples: Dict[str, ArrayLike], 
+    tokenizer: CLIPTokenizer, 
+    captions_column_name: str = "caption"
+) -> Dict[str, ArrayLike]:
+    captions = examples[captions_column_name]
+    inputs = tokenizer(
+        captions, 
+        max_length=tokenizer.model_max_length, 
+        padding="max_length", 
+        truncation=True,
+        return_tensors="np"
+    )
+    examples["input_ids"] = inputs.input_ids
+    return examples
+
+
+def load_datasets(
+    config: mlc.ConfigDict, 
+    tokenizer: CLIPTokenizer
+) -> Tuple[Dataset, Dataset]:
+    data_files = {
+        "train": config.data.train_file
+    }
+    if config.data.eval_file:
+        data_files["test"] = config.data.eval_file
+
+    datasets = load_dataset(
+        config.data.name, 
+        data_files=data_files
+    )
+
+    if "eval" not in data_files:
+        datasets = datasets["train"].train_test_split(
+            test_size=config.data.validation_split_percentage / 100,
+            seed=config.seed
+        )
+    train_dataset = datasets["train"]
+    eval_dataset = datasets["test"]
+
+    _tokenize_fn = functools.partial(
+        tokenize_fn,
+        tokenizer=tokenizer,
+        captions_column_name=config.data.captions_column_name
+    )
+
+    if jax.process_index() == 0:
+        # TODO: do we have the memory for this? might have to do it on the go
+        train_dataset = train_dataset.map(
+            _tokenize_fn,
+            batched=True,
+            num_proc=config.data.preprocessing_num_workers,
+            remove_columns=[config.data.captions_column_name],
+            load_from_cache_file=not config.data.overwrite_cache,
+            desc="Running tokenizer on every caption in train dataset"
+        )
+        train_dataset = train_dataset.with_format("numpy")
+
+        eval_dataset = eval_dataset.map(
+            _tokenize_fn,
+            batched=True,
+            num_proc=config.data.preprocessing_num_workers,
+            remove_columns=[config.data.captions_column_name],
+            load_from_cache_file=not config.data.overwrite_cache,
+            desc="Running tokenizer on every caption in train dataset"
+        )
+        eval_dataset = eval_dataset.with_format("numpy")
+
+    return train_dataset, eval_dataset
+
+
+def collate_fn(examples: Dict[str, ArrayLike], device_count: int) -> Dict[str, ArrayLike]:
+    rearrange = functools.partial(
+        einops.rearrange, 
+        pattern="(d b) n -> d b n",
+        d=device_count
+    )
+    examples["input_ids"] = rearrange(examples["input_ids"])
+    examples["encoding"] = rearrange(examples["encoding"])
+    return examples
+
+
+def create_loader(
+    config: mlc.ConfigDict, 
+    dataset: Dataset, 
+    batch_size: Optional[int] = None,
+    shuffle: bool = True,
+    drop_last: bool = True
+) -> Generator[Dict[str, ArrayLike], None, None]:
+    batch_size = batch_size or config.batch_size
+    _collate_fn = functools.partial(
+        collate_fn,
+        device_count=jax.device_count()
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=config.data.num_workers,
+        collate_fn=_collate_fn,
+        drop_last=drop_last
+    )
+    return infinite_loader(loader)
 
 def compute_classifer_free_embedding(config, encoder: FlaxCLIPTextModel, tokenizer: CLIPTokenizer):
     prompt = [""]
@@ -60,30 +187,7 @@ def compute_classifer_free_embedding(config, encoder: FlaxCLIPTextModel, tokeniz
     embedding = encoder(tokens)
     return embedding
 
-# TODO: unify data loading in a different file
-# TODO: text to image dataset
-def get_data_loader(
-    name: Literal["ffhq256"], batch_size: int = 1, num_workers: int = 0
-):
-    if name in ["ffhq256"]:
-        dataset = ImageFolder(
-            "data/ffhq256",
-            transform=T.Compose([T.RandomHorizontalFlip(), T.ToTensor()]),
-        )
-    else:
-        raise ValueError(f"unrecognised dataset name '{name}'")
-
-    loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        drop_last=True,
-        num_workers=num_workers,
-    )
-    return dataset, loader
-
-
-def main(config):
+def main(config: mlc.ConfigDict) -> None:
     jax.distributed.initialize()
     devices = jax.devices()
     replication_factor = len(devices)
@@ -92,54 +196,59 @@ def main(config):
     logging.info("Random seed:", config.seed)
 
     # TODO: add drive root param
-    save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("text-to-image-checkpoints_%Y-%d-%m_%H-%M-%S")
-    save_name.mkdir()
-    logging.info(f"Working directory '{save_name}'")
-    orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointHandler())
-    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
-        keep_period=config.checkpoint.keep_period,
-        max_to_keep=config.checkpoint.max_to_keep,
-        create=True,
-    )
-    checkpoint_manager = orbax.checkpoint.CheckpointManager(
-        save_name, orbax_checkpointer, checkpoint_opts
-    )
+    if config.enable_checkpointing:
+        save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("text-to-image-checkpoints_%Y-%d-%m_%H-%M-%S")
+        save_name.mkdir()
+        logging.info(f"Working directory '{save_name}'")
+        orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointHandler())
+        checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
+            keep_period=config.checkpoint.keep_period,
+            max_to_keep=config.checkpoint.max_to_keep,
+            create=True,
+        )
+        checkpoint_manager = orbax.checkpoint.CheckpointManager(
+            save_name, orbax_checkpointer, checkpoint_opts
+        )
 
-    logging.info(f"Loading dataset '{config.data.name}'")
-    _, train_loader = get_data_loader(
-        config.data.name, config.batch_size, config.data.num_workers, train=True
+    logging.info(f"Loading tokenizer")
+    tokenizer = load_tokenizer(config)
+
+    logging.info(f"Loading dataset")
+    train_dataset, eval_dataset = load_datasets(config, tokenizer)
+    train_loader = create_loader(
+        config,
+        train_dataset
     )
-    _, eval_loader = get_data_loader(
-        config.data.name,
-        config.batch_size * 2,
-        config.data.num_workers,
-        train=False,
+    eval_loader = create_loader(
+        config,
+        eval_dataset,
+        batch_size=config.batch_size * 2,
+        shuffle=False
     )
-    train_iter = infinite_loader(train_loader)
-    eval_iter = infinite_loader(eval_loader)
 
     logging.info(f"Loading VQ-GAN")
     vqgan_dtype = getattr(jnp, config.vqgan.dtype)
     vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
         config.vqgan.name, dtype=vqgan_dtype
     )
+
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config, has_context=True)
-    save_args = orbax_utils.save_args_from_target(state)
+
+    if config.enable_checkpointing:
+        save_args = orbax_utils.save_args_from_target(state)
 
     logging.info(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
-
-    logging.info("Loading CLIPTokenizer")
-    tokenizer = load_tokenizer(config)
 
     logging.info(f"Loading FlaxCLIPTextModel")
     text_encoder = load_text_encoder(config)
 
+    # TODO: Fix classifier-free-guidance
     classifier_free_embedding = compute_classifer_free_embedding(config, text_encoder, tokenizer)
 
-    train_step = build_train_step(config, vqgan=vqgan, train=True, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
-    eval_step = build_train_step(config, vqgan=vqgan, train=False, text_encoder=text_encoder)
-    # TODO: param all this
+    train_step = build_train_step(config, train=True, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
+    eval_step = build_train_step(config, train=False, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
+    # TODO: param all this, also can we only pass vqgan decoder params?
     sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder)
     state = flax.jax_utils.replicate(state)
 
@@ -151,7 +260,6 @@ def main(config):
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0, 0))
     pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0, 0))
-    
 
     step = 0
     while step < config.training.step:
@@ -159,18 +267,11 @@ def main(config):
 
         pb = tqdm.trange(config.training.batches[0])
         for i in enumerate(pb):
-            batch, prompt = next(train_iter)
-            batch = einops.rearrange(
-                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor
-            )
-            tokens = tokenizer(prompt, padding='max_length', max_length=config.text_encoder.max_length, return_tensors='np')
-            tokens = einops.rearrange(
-                tokens, "(r b) n -> r b n", r=replication_factor
-            )
+            batch = next(train_loader)
 
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = pmap_train_step(state, batch, subkeys, conditioning=tokens) # TODO: add donate args, memory save on params
+            state, loss, accuracy = pmap_train_step(state, batch['encodings'], subkeys, conditioning=batch['input_ids'])
             loss, accuracy = loss.mean(), accuracy.mean()
 
             metrics["loss"] += loss
@@ -192,25 +293,18 @@ def main(config):
             step=step,
         )
 
-        checkpoint_manager.save(
-            step, flax.jax_utils.unreplicate(state), save_kwargs={"save_args": save_args}
-        )
+        if config.enable_checkpointing:
+            checkpoint_manager.save(
+                step, flax.jax_utils.unreplicate(state), save_kwargs={"save_args": save_args}
+            )
 
         metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.trange(config.training.batches[1])
         for i in pb:
-            batch, prompt = next(eval_iter)
-            batch = einops.rearrange(
-                batch.numpy(), "(r b) c h w -> r b c h w", r=replication_factor, c=3
-            )
-            tokens = tokenizer(prompt, padding='max_length', max_length=config.text_encoder.max_length, return_tensors='np')
-            tokens = einops.rearrange(
-                tokens.numpy(), "(r b) n -> r b n", r=replication_factor
-            )
-
+            batch = next(eval_loader)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = pmap_eval_step(state, batch, subkeys, conditioning=tokens) # TODO: add donate args, memory save on params
+            state, loss, accuracy = pmap_eval_step(state, batch['encodings'], subkeys, conditioning=batch['input_ids'])
             loss, accuracy = loss.mean(), accuracy.mean()
 
             metrics["loss"] += loss
@@ -232,21 +326,22 @@ def main(config):
         )
 
         # TODO: how do we want to prompt this?
-        # logging.info("sampling from current model")
-        # key, subkey = jax.random.split(key)
-        # subkeys = jax.random.split(subkey, replication_factor)
-        # img = pmap_sample_loop(state.params, subkeys)
-        # img = jnp.reshape(img, (-1, config.data.image_size, config.data.image_size, 3))
-        # sqrt_num_images = int(sqrt(img.shape[0]))
-        # img = custom_to_pil(
-        #     np.asarray(
-        #         einops.rearrange(
-        #             img, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=sqrt_num_images, b2=img.shape[0] // sqrt_num_images
-        #         )
-        #     )
-        # )
-        # img.save(Path(save_name) / f"sample-{step:08}.jpg")
-        # wandb.log({"sample": wandb.Image(img)}, commit=True, step=step)
+        logging.info("sampling from current model")
+        key, subkey = jax.random.split(key)
+        subkeys = jax.random.split(subkey, replication_factor)
+        img = pmap_sample_loop(state.params, subkeys)
+        img = jnp.reshape(img, (-1, config.data.image_size, config.data.image_size, 3))
+        sqrt_num_images = int(sqrt(img.shape[0]))
+        img = custom_to_pil(
+            np.asarray(
+                einops.rearrange(
+                    img, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=sqrt_num_images, b2=img.shape[0] // sqrt_num_images
+                )
+            )
+        )
+        if config.enable_checkpointing:
+            img.save(Path(save_name) / f"sample-{step:08}.jpg")
+        wandb.log({"sample": wandb.Image(img)}, commit=True, step=step)
 
 if __name__ == "__main__":
     # TODO: add proper argparsing!: Hatman

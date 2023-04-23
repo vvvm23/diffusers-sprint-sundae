@@ -6,14 +6,14 @@ import jax.numpy as jnp
 def get_config() -> mlc.ConfigDict:
     config = mlc.ConfigDict()
 
-    config.train_fn = "unconditional"
+    config.train_fn = "text_to_image"
     config.batch_size = 32
     config.seed = 0
     config.do_train = True
 
     config.data = dict(
-        name="ffhq256",
-        num_workers=8,
+        name="parquet",
+        num_workers=4,
         train_dir="",
         validation_dir="",
         train_file="",
@@ -24,12 +24,12 @@ def get_config() -> mlc.ConfigDict:
         image_size=256,
         max_train_samples=-1,
         max_eval_samples=-1,
-        validation_split_percentage=10,
+        validation_split_percentage=1,
         preprocessing_num_workers=1
     )
     config.model = dict(
         model_name_or_path="sundae-default",
-        config_name="sundae-default",
+        config_name="text_to_image_default",
         num_tokens=16_384,
         dim=1024,
         depth=[2, 8, 2],
@@ -53,11 +53,11 @@ def get_config() -> mlc.ConfigDict:
         steps=1_000_000,
         warmup_steps=4000,
         warmup_start_lr=1e-6,
-        end_learning_rate_scale=100,
+        end_learning_rate_scale=10,
         max_grad_norm=5.0,
         weight_decay=0.0,
         temperature=1.0,
-        batches=(2000, 500),
+        batches=(4000, 200),
         conditioning_dropout = 0.2
     )
     config.vqgan = dict(name="vq-f8", dtype="bfloat16")

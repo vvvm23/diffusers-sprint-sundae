@@ -10,9 +10,9 @@ metric:
   goal: minimize
 parameters:
   config: 
-    value: sundae/configs/default.py
+    value: sundae/configs/text_to_image.py
   config.train_fn:
-    value: unconditional
+    value: text_to_image
   config.enable_checkpointing:
     value: false
 

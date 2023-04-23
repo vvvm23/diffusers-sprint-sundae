@@ -4,6 +4,7 @@ einops
 tqdm
 
 transformers
+datasets
 omegaconf
 pytorch-lightning
 

@@ -50,6 +50,19 @@ python train_unconditional.py
 python train_text_to_image.py
 ```
 
+To start a training run with conditional text-to-image training you can call the command below.
+Just remember to substitute the `<enter-train-file-here>` string with the path to your training file.
+Notes: 
+- It is advised to use training file in the ".parquet" format.
+- Check other flags (`per_device_batch_size`, `preprocessing_num_workers`, ...)
+```bash
+python main.py \
+    --output_dir ./outputs \
+    --config ./sundae/configs/text_to_image.py
+    --config.data.train_file <enter-train-file-here>
+```
+
+
 ## Configuration
 We handle the command-line flags and configuration with abseil and ml_collections.
 This allows for easy access to configuration from the command-line and inside Python modules.
