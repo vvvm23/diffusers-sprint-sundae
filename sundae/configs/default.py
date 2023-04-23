@@ -13,7 +13,7 @@ def get_config() -> mlc.ConfigDict:
 
     config.data = dict(
         name="ffhq256",
-        num_workers=4,
+        num_workers=8,
         train_dir="",
         validation_dir="",
         overwrite_cache=True,
@@ -25,12 +25,10 @@ def get_config() -> mlc.ConfigDict:
         config_name="sundae-default",
         num_tokens=16_384,
         dim=1024,
-        depth=[3, 12, 3],
+        depth=[2, 8, 2],
         shorten_factor=4,
         resample_type="linear",
         heads=8,
-        dim_head=64,
-        rotary_emb_dim=32,
         max_seq_len=32,  # effectively squared to 256
         parallel_block=False,
         tied_embedding=False,
@@ -48,11 +46,11 @@ def get_config() -> mlc.ConfigDict:
         steps=1_000_000,
         warmup_steps=4000,
         warmup_start_lr=1e-6,
-        end_learning_rate=3e-6,
+        end_learning_rate_scale=100,
         max_grad_norm=5.0,
         weight_decay=0.0,
         temperature=1.0,
-        batches=(4000, 200),
+        batches=(2000, 500),
         conditioning_dropout = 0.2
     )
     config.vqgan = dict(name="vq-f8", dtype="bfloat16")
@@ -64,5 +62,6 @@ def get_config() -> mlc.ConfigDict:
 
     config.debug_nans = False
     config.log_compile = False
+    config.enable_checkpointing = True
 
     return config

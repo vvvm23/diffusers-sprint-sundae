@@ -1,19 +1,57 @@
 name: diffusers-sprint-sundae
-description: try different stuff to do more stuff
-program: train-unconditional.py
+description: Unconditional model sweeping for testing
+program: main.py
 method: random
 early_terminate:
   type: hyperband
   min_iter: 3
 metric:
-  name: loss
+  name: eval.loss
   goal: minimize
 parameters:
-  batch_size:
-    values: [32, 48, 64, 128]
-  num_workers:
-    values: [3, 4, 5, 6]
-  learning_rate:
-    values: [.00005, .0001, 0.0005, 0.00075, 0.001]
-  epochs:
-    values: [ 40, 80, 120, 160]
+  config: 
+    value: sundae/configs/default.py
+  config.train_fn:
+    value: unconditional
+  config.enable_checkpointing:
+    value: false
+
+  config.batch_size:
+    distribution: constant
+    value: 64
+
+  config.training.steps:
+    distribution: constant
+    value: 6000
+  config.training.warmup_steps:
+    distribution: constant
+    value: 1000
+  config.training.unroll_steps:
+    distribution: constant
+    value: 2
+  config.training.learning_rate:
+    distribution: categorical
+    values: [0.0005, 0.0001, 0.00005, 0.00001, 0.000005]
+  config.training.end_learning_rate_scale:
+    distribution: categorical
+    values: [10, 100]
+  config.training.weight_decay:
+    distribution: constant
+    value: 0.0
+  config.training.conditioning_dropout:
+    distribution: constant
+    value: 0.2
+
+  config.model.shorten_factor:
+    distribution: constant
+    value: 4
+  config.model.dim:
+    distribution: constant
+    value: 1024
+  config.model.parallel_block:
+    distribution: categorical
+    values: [true, false]
+  config.model.heads:
+    distribution: categorical
+    values: [8, 16]
+

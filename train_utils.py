@@ -56,7 +56,7 @@ def create_train_state(key, config: dict, has_context: bool = False):
             ),
             optax.linear_schedule(
                 config.training.learning_rate,
-                config.training.end_learning_rate,
+                config.training.learning_rate / config.training.end_learning_rate_scale,
                 config.training.steps - config.training.warmup_steps,
             ),
         ],
