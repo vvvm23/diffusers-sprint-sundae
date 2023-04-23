@@ -106,7 +106,8 @@ def load_datasets(
 
     datasets = load_dataset(
         config.data.name, 
-        data_files=data_files
+        # data_files=data_files
+        data_dir=config.data.train_dir
     )
 
     if "eval" not in data_files:
@@ -184,7 +185,7 @@ def create_loader(
 def compute_classifer_free_embedding(config, encoder: FlaxCLIPTextModel, tokenizer: CLIPTokenizer):
     prompt = [""]
     tokens = tokenizer(prompt, padding="max_length", max_length=config.text_encoder.max_length, return_tensors='np')
-    embedding = encoder(tokens)
+    embedding = encoder(tokens['input_ids'])[0]
     return embedding
 
 def main(config: mlc.ConfigDict) -> None:
@@ -193,7 +194,6 @@ def main(config: mlc.ConfigDict) -> None:
     replication_factor = len(devices)
 
     key = jax.random.PRNGKey(config.seed)
-    logging.info("Random seed:", config.seed)
 
     # TODO: add drive root param
     if config.enable_checkpointing:

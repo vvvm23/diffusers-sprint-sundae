@@ -73,7 +73,6 @@ def main(config):
     replication_factor = len(devices)
 
     key = jax.random.PRNGKey(config.seed)
-    logging.info("Random seed:", config.seed)
 
     if config.enable_checkpointing:
         # TODO: add drive root param

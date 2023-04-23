@@ -2,14 +2,10 @@ from typing import Callable, Optional, Sequence, Union, Literal
 
 from absl import app, flags, logging
 
-
+import os
 import jax
 from clu import platform
 from ml_collections import config_flags
-
-from train_unconditional import main as _train_unconditional
-from train_text_to_image import main as _train_text_to_image
-
 
 FLAGS = flags.FLAGS
 
@@ -20,11 +16,6 @@ config_flags.DEFINE_config_file("config", None, "Path to training hyperparameter
 # flags.mark_flags_as_required(["config", "output_dir"])
 flags.mark_flags_as_required(["config"])
 
-
-CONFIG_TO_TRAIN_FN = {
-    "unconditional": _train_unconditional,
-    "text_to_image": _train_text_to_image,
-}
 
 
 def main(argv):
@@ -44,6 +35,18 @@ def main(argv):
     )
 
     logging.info(f"Config: {config}")
+
+    logging.info(f"Setting Huggingface cache directory to '{config.data.cache_dir}'")
+    os.environ['HF_HOME'] = config.data.cache_dir
+
+    from train_unconditional import main as _train_unconditional
+    from train_text_to_image import main as _train_text_to_image
+
+    CONFIG_TO_TRAIN_FN = {
+        "unconditional": _train_unconditional,
+        "text_to_image": _train_text_to_image,
+    }
+
 
     if config.do_train:
         train_fn = CONFIG_TO_TRAIN_FN[config.train_fn]

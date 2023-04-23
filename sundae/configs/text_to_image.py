@@ -14,9 +14,9 @@ def get_config() -> mlc.ConfigDict:
     config.data = dict(
         name="parquet",
         num_workers=4,
-        train_dir="",
+        train_dir="/mnt/disks/persist/laion_art_images_vqganf8_encoded/",
         validation_dir="",
-        train_file="",
+        train_file="/mnt/disks/persist/laion_art_images_vqganf8_encoded/",
         eval_file="",
         captions_column_name="caption",
         overwrite_cache=False,
@@ -25,7 +25,8 @@ def get_config() -> mlc.ConfigDict:
         max_train_samples=-1,
         max_eval_samples=-1,
         validation_split_percentage=1,
-        preprocessing_num_workers=1
+        preprocessing_num_workers=8,
+        cache_dir="/mnt/disks/persist/huggingface_cache",
     )
     config.model = dict(
         model_name_or_path="sundae-default",
