@@ -7,7 +7,7 @@ def get_config() -> mlc.ConfigDict:
     config = mlc.ConfigDict()
 
     config.train_fn = "text_to_image"
-    config.per_device_batch_size = 32
+    config.batch_size = 32
     config.seed = 0
     config.do_train = True
 

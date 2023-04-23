@@ -163,19 +163,18 @@ def collate_fn(examples: Dict[str, ArrayLike], device_count: int) -> Dict[str, A
 def create_loader(
     config: mlc.ConfigDict, 
     dataset: Dataset, 
-    per_device_batch_size: Optional[int] = None,
+    batch_size: Optional[int] = None,
     shuffle: bool = True,
     drop_last: bool = True
 ) -> Generator[Dict[str, ArrayLike], None, None]:
-    per_device_batch_size = per_device_batch_size or config.per_device_batch_size
-    total_batch_size = per_device_batch_size * jax.device_count()
+    batch_size = batch_size or config.batch_size
     _collate_fn = functools.partial(
         collate_fn,
         device_count=jax.device_count()
     )
     loader = DataLoader(
         dataset,
-        batch_size=total_batch_size,
+        batch_size=batch_size,
         shuffle=shuffle,
         num_workers=config.data.num_workers,
         collate_fn=_collate_fn,
@@ -223,7 +222,7 @@ def main(config: mlc.ConfigDict) -> None:
     eval_loader = create_loader(
         config,
         eval_dataset,
-        per_device_batch_size=config.per_device_batch_size * 2,
+        batch_size=config.batch_size * 2,
         shuffle=False
     )
 
