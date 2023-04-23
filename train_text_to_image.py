@@ -79,10 +79,10 @@ def load_tokenizer(config: mlc.ConfigDict) -> Union[CLIPTokenizer, CLIPTokenizer
 
 
 def tokenize_fn(
-    examples: Dict[str, Any], 
-    tokenizer: Tokenizer, 
+    examples: Dict[str, ArrayLike], 
+    tokenizer: CLIPTokenizer, 
     captions_column_name: str = "caption"
-) -> Dict[str, Any]:
+) -> Dict[str, ArrayLike]:
     captions = examples[captions_column_name]
     inputs = tokenizer(
         captions, 
@@ -97,7 +97,7 @@ def tokenize_fn(
 
 def load_datasets(
     config: mlc.ConfigDict, 
-    tokenizer: Tokenizer
+    tokenizer: CLIPTokenizer
 ) -> Tuple[Dataset, Dataset]:
     data_files = {
         "train": config.data.train_file
@@ -125,6 +125,7 @@ def load_datasets(
     )
 
     if jax.process_index() == 0:
+        # TODO: do we have the memory for this? might have to do it on the go
         train_dataset = train_dataset.map(
             _tokenize_fn,
             batched=True,
@@ -148,7 +149,7 @@ def load_datasets(
     return train_dataset, eval_dataset
 
 
-def collate_fn(examples: Dict[str, Any], device_count: int) -> Dict[str, Any]:
+def collate_fn(examples: Dict[str, ArrayLike], device_count: int) -> Dict[str, ArrayLike]:
     rearrange = functools.partial(
         einops.rearrange, 
         pattern="(d b) n -> d b n",
@@ -165,7 +166,7 @@ def create_loader(
     per_device_batch_size: Optional[int] = None,
     shuffle: bool = True,
     drop_last: bool = True
-) -> Generator[Dict[str, Any], None, None]:
+) -> Generator[Dict[str, ArrayLike], None, None]:
     per_device_batch_size = per_device_batch_size or config.per_device_batch_size
     total_batch_size = per_device_batch_size * jax.device_count()
     _collate_fn = functools.partial(
@@ -182,6 +183,11 @@ def create_loader(
     )
     return infinite_loader(loader)
 
+def compute_classifer_free_embedding(config, encoder: FlaxCLIPTextModel, tokenizer: CLIPTokenizer):
+    prompt = [""]
+    tokens = tokenizer(prompt, padding="max_length", max_length=config.text_encoder.max_length, return_tensors='np')
+    embedding = encoder(tokens)
+    return embedding
 
 def main(config: mlc.ConfigDict) -> None:
     jax.distributed.initialize()
@@ -221,6 +227,12 @@ def main(config: mlc.ConfigDict) -> None:
         shuffle=False
     )
 
+    logging.info(f"Loading VQ-GAN")
+    vqgan_dtype = getattr(jnp, config.vqgan.dtype)
+    vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
+        config.vqgan.name, dtype=vqgan_dtype
+    )
+
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config, has_context=True)
     save_args = orbax_utils.save_args_from_target(state)
@@ -231,78 +243,12 @@ def main(config: mlc.ConfigDict) -> None:
     text_encoder = load_text_encoder(config)
 
     # TODO: Fix classifier-free-guidance
-    # classifier_free_embedding = compute_classifer_free_embedding(config, text_encoder, tokenizer)
+    classifier_free_embedding = compute_classifer_free_embedding(config, text_encoder, tokenizer)
 
-    def update_step(
-        state: Any, 
-        batch: Dict[str, Any], 
-        key: jax.random.PRNGKey, 
-        conditioning: Optional[ArrayLike] = None
-        train: bool = True
-    ) -> Tuple[Any, float]:
-        token_ids = batch["input_ids"]
-        vqgan_ids = batch["encoding"]
-        model = SundaeModel(config.model)
-
-        # assert (conditioning is None) == (text_encoder is None)
-
-        # if text_encoder exists, assume input `conditioning` is tokens and compute embeddings
-        # if doesn't exist, we are probably operating in unconditionally, hence skip.
-        # we assume the above as precomputing embeddings is too expensive storage-wise
-        # for debugging, just make `text_encoder` a callable that returns a constant
-        # note, even when operating in a classifier-free way, we still pass an empty string, and hence a token sequence
-        # TODO: Fix classifier-free-guidance
-        # if text_encoder is not None:
-        #     if classifier_free_embedding is not None and config.training.conditioning_dropout > 0.0:
-        #         key, subkey = jax.random.split(key)
-        #         mask = jax.random.uniform(subkey, (conditioning.shape[0],)) < config.training.conditioning_dropout
-        #         conditioning = einops.repeat(classifier_free_embedding, '1 ... -> n ...', n=conditioning.shape[0]) * mask + text_encoder(conditioning) * ~mask
-        #     else:
-        #         conditioning = text_encoder(conditioning)
-        conditioning = text_encoder(token_ids)
-
-        def loss_fn(params, key):
-            all_logits = []
-            key, subkey = jax.random.split(key)
-            samples = corrupt_batch(vqgan_ids, subkey, config.model.num_tokens)
-            for i in range(
-                config.training.unroll_steps
-            ):  # TODO: replace with real jax loop, otherwise compile time scales with num iters.
-                key, subkey = jax.random.split(key)
-                logits = model.apply({"params": params}, samples, context=conditioning)
-                all_logits.append(logits)
-
-                if config.training.temperature > 0.0:
-                    samples = jax.random.categorical(
-                        subkey, logits / config.training.temperature, axis=-1
-                    )
-                else:
-                    samples = logits.argmax(axis=-1)
-                samples = jax.lax.stop_gradient(samples)
-
-            logits = jnp.concatenate(all_logits)
-            repeat_batch = jnp.concatenate([x] * config.training.unroll_steps)
-            total_loss = cross_entropy(logits, repeat_batch)
-            total_accuracy = (logits.argmax(axis=-1) == repeat_batch).mean()
-
-            return total_loss, 100.0 * total_accuracy
-
-        if train:
-            (loss, accuracy), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, key
-            )
-            grads = jax.lax.pmean(grads, "replication_axis")
-            new_state = state.apply_gradients(grads=grads)
-
-            return new_state, loss, accuracy
-
-        loss, accuracy = loss_fn(state.params, key)
-        return loss, accuracy
-
-    train_step = update_step(config, train=True)
-    eval_step = update_step(config, train=False)
-    # TODO: param all this
-    # sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder)
+    train_step = build_train_step(config, train=True, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
+    eval_step = build_train_step(config, train=False, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
+    # TODO: param all this, also can we only pass vqgan decoder params?
+    sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder)
     state = flax.jax_utils.replicate(state)
 
     if config.report_to_wandb:
@@ -312,7 +258,7 @@ def main(config: mlc.ConfigDict) -> None:
 
     pmap_train_step = jax.pmap(train_step, "replication_axis", in_axes=(0, 0, 0, 0))
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0, 0))
-    # pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0, 0))
+    pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0, 0))
 
     step = 0
     while step < config.training.step:
@@ -320,11 +266,11 @@ def main(config: mlc.ConfigDict) -> None:
 
         pb = tqdm.trange(config.training.batches[0])
         for i in enumerate(pb):
-            batch = next(train_iter)
+            batch = next(train_loader)
 
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = pmap_train_step(state, batch, subkeys, conditioning=tokens) # TODO: add donate args, memory save on params
+            state, loss, accuracy = pmap_train_step(state, batch['encodings'], subkeys, conditioning=batch['input_ids'])
             loss, accuracy = loss.mean(), accuracy.mean()
 
             metrics["loss"] += loss
@@ -353,10 +299,10 @@ def main(config: mlc.ConfigDict) -> None:
         metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.trange(config.training.batches[1])
         for i in pb:
-            batch = next(eval_iter)
+            batch = next(eval_loader)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = pmap_eval_step(state, batch, subkeys, conditioning=tokens) # TODO: add donate args, memory save on params
+            state, loss, accuracy = pmap_eval_step(state, batch['encodings'], subkeys, conditioning=batch['input_ids'])
             loss, accuracy = loss.mean(), accuracy.mean()
 
             metrics["loss"] += loss
@@ -378,21 +324,21 @@ def main(config: mlc.ConfigDict) -> None:
         )
 
         # TODO: how do we want to prompt this?
-        # logging.info("sampling from current model")
-        # key, subkey = jax.random.split(key)
-        # subkeys = jax.random.split(subkey, replication_factor)
-        # img = pmap_sample_loop(state.params, subkeys)
-        # img = jnp.reshape(img, (-1, config.data.image_size, config.data.image_size, 3))
-        # sqrt_num_images = int(sqrt(img.shape[0]))
-        # img = custom_to_pil(
-        #     np.asarray(
-        #         einops.rearrange(
-        #             img, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=sqrt_num_images, b2=img.shape[0] // sqrt_num_images
-        #         )
-        #     )
-        # )
-        # img.save(Path(save_name) / f"sample-{step:08}.jpg")
-        # wandb.log({"sample": wandb.Image(img)}, commit=True, step=step)
+        logging.info("sampling from current model")
+        key, subkey = jax.random.split(key)
+        subkeys = jax.random.split(subkey, replication_factor)
+        img = pmap_sample_loop(state.params, subkeys)
+        img = jnp.reshape(img, (-1, config.data.image_size, config.data.image_size, 3))
+        sqrt_num_images = int(sqrt(img.shape[0]))
+        img = custom_to_pil(
+            np.asarray(
+                einops.rearrange(
+                    img, "(b1 b2) h w c -> (b1 h) (b2 w) c", b1=sqrt_num_images, b2=img.shape[0] // sqrt_num_images
+                )
+            )
+        )
+        img.save(Path(save_name) / f"sample-{step:08}.jpg")
+        wandb.log({"sample": wandb.Image(img)}, commit=True, step=step)
 
 if __name__ == "__main__":
     # TODO: add proper argparsing!: Hatman
