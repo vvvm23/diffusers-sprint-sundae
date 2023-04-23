@@ -2,6 +2,7 @@ import jax
 from jax import lax, numpy as jnp
 from jax.typing import ArrayLike
 
+import ast
 import flax
 import flax.linen as nn
 
@@ -480,7 +481,7 @@ class SundaeModel(nn.Module):
         return HourglassTransformerLM(
             num_tokens=config.num_tokens,
             dim=config.dim,
-            depth=config.depth,
+            depth=ast.literal_eval(config.depth) if isinstance(config.depth, str) else config.depth,
             shorten_factor=config.shorten_factor,
             resample_type=config.resample_type,
             heads=config.heads,

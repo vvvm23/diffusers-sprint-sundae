@@ -45,7 +45,7 @@ def create_train_state(key, config: dict, has_context: bool = False):
         jnp.zeros(
             (1, config.model.max_seq_len * config.model.max_seq_len), dtype=jnp.int32
         ),
-        context=jnp.zeros((1, config.text_encoder.max_length, config.model.dim)) if has_context else None
+        context=jnp.zeros((1, config.text_encoder.max_length, config.text_encoder.dim)) if has_context else None
     )["params"]
     lr_scheduler = optax.join_schedules(
         [

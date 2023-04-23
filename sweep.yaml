@@ -1,10 +1,11 @@
 name: diffusers-sprint-sundae
 description: Unconditional model sweeping for testing
 program: main.py
-method: random
+method: grid
 early_terminate:
   type: hyperband
-  min_iter: 3
+  min_iter: 2
+  eta: 2
 metric:
   name: eval.loss
   goal: minimize
@@ -22,7 +23,7 @@ parameters:
 
   config.training.steps:
     distribution: constant
-    value: 8000
+    value: 10000
   config.training.warmup_steps:
     distribution: constant
     value: 1000
@@ -46,9 +47,6 @@ parameters:
   config.model.shorten_factor:
     distribution: constant
     value: 4
-  config.model.dim:
-    distribution: constant
-    value: 1024
   config.model.parallel_block:
     distribution: constant
     value: false
@@ -57,9 +55,9 @@ parameters:
     value: 16
 
   config.model.dim:
-    distribution: categorical:
-    value: [1024, 2048]
+    distribution: categorical
+    values: [1024, 2048]
 
   config.model.depth:
     distribution: categorical
-    values: [(2, 10, 2), (3, 8, 3), (4, 6, 4)]
+    values: ['(2, 10, 2)', '(3, 8, 3)', '(4, 6, 4)']

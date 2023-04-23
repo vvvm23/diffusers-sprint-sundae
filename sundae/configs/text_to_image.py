@@ -33,7 +33,7 @@ def get_config() -> mlc.ConfigDict:
         config_name="text_to_image_default",
         num_tokens=16_384,
         dim=1024,
-        depth=[2, 8, 2],
+        depth='(2, 8, 2)',
         shorten_factor=4,
         resample_type="linear",
         heads=16,
@@ -47,6 +47,7 @@ def get_config() -> mlc.ConfigDict:
         from_pt=True,
         use_fast_tokenizer=True,
         max_length = 77,
+        dim=1024,
     )
     config.training = dict(
         learning_rate=4e-4,
@@ -58,7 +59,7 @@ def get_config() -> mlc.ConfigDict:
         max_grad_norm=5.0,
         weight_decay=0.0,
         temperature=1.0,
-        batches=(4000, 200),
+        batches=(2000, 200),
         conditioning_dropout = 0.2
     )
     config.vqgan = dict(name="vq-f8", dtype="bfloat16")
