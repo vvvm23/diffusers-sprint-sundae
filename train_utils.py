@@ -113,7 +113,7 @@ def build_train_step(
             samples = corrupt_batch(x, subkey, config.model.num_tokens)
             for i in range(
                 config.training.unroll_steps
-            ):  # TODO: replace with real jax loop, otherwise compile time scales with num iters.
+            ):
                 key, subkey = jax.random.split(key)
                 logits = model.apply({"params": params}, samples, context=conditioning)
                 all_logits.append(logits)

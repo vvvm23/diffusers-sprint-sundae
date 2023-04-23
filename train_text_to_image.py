@@ -228,8 +228,11 @@ def main(config: mlc.ConfigDict) -> None:
     classifier_free_embedding = compute_classifer_free_embedding(config, text_encoder, tokenizer)
     train_step = build_train_step(config, train=True, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
     eval_step = build_train_step(config, train=False, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
+
     # TODO: param all this, also can we only pass vqgan decoder params?
-    sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder)
+    num_samples = 4
+    sample_prompts = ["An armchair in the shape of an avacado"]*num_samples*replication_factor
+    sample_loop = build_fast_sample_loop(config, vqgan=vqgan, temperature=0.7, proportion=0.5, text_encoder=text_encoder, num_samples=num_samples)
     state = flax.jax_utils.replicate(state)
 
     if config.report_to_wandb:
@@ -253,6 +256,7 @@ def main(config: mlc.ConfigDict) -> None:
 
         pb = tqdm.trange(config.training.batches[0])
         for i in pb:
+            break
             batch = next(train_loader)
 
             key, subkey = jax.random.split(key)
@@ -293,6 +297,7 @@ def main(config: mlc.ConfigDict) -> None:
         metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.trange(config.training.batches[1])
         for i in pb:
+            break
             batch = next(eval_loader)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
@@ -323,7 +328,6 @@ def main(config: mlc.ConfigDict) -> None:
         )
 
         # TODO: how do we want to prompt this?
-        sample_prompts = ["An armchair in the shape of an avacado"]*config.batch_size
         sample_tokens = tokenizer(sample_prompts, padding='max_length', max_length=config.text_encoder.max_length, return_tensors='np').input_ids
         sample_tokens = rearrange_fn(sample_tokens)
         logging.info("sampling from current model")
