@@ -50,7 +50,7 @@ def get_config() -> mlc.ConfigDict:
     )
     config.training = dict(
         learning_rate=4e-4,
-        unroll_steps=3,
+        unroll_steps=2,
         steps=1_000_000,
         warmup_steps=4000,
         warmup_start_lr=1e-6,

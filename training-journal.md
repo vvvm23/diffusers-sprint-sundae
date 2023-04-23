@@ -14,3 +14,13 @@ Boris mentioned one of the most important parameters to tune is learning rate bu
 I'll be following (roughly) [this guide](https://github.com/google-research/tuning_playbook#choosing-a-model-architecture)
 
 Currently practising sweeps on an unconditional model. I'll move to first stage of sweeps as soon as dataloading is there.
+
+# First Stage of tuning
+This was somewhat cut short initially as we noticed the training data was corrupted - wrong scaling.
+
+I am focusing on a reduce learning rate search, and emphasizing exploring model dim and depth at high levels versus low levels.
+
+Initial results from unconditional suggested parallel vs non parallel is about the same. Went with the latter.
+Tied embeddings made training super unstable.
+Also suggested more heads is good, fixing at 16.
+We decided to fix shorten factor at 4 for efficiency :) same for unroll.
