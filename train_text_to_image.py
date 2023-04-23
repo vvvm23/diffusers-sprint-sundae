@@ -42,7 +42,6 @@ from transformers import (
 
 from torch.utils.data import DataLoader
 import torchvision.transforms as T
-from torchvision.datasets import ImageFolder
 
 import vqgan_jax
 import vqgan_jax.convert_pt_model_to_jax
@@ -197,18 +196,19 @@ def main(config: mlc.ConfigDict) -> None:
     logging.info("Random seed:", config.seed)
 
     # TODO: add drive root param
-    save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("text-to-image-checkpoints_%Y-%d-%m_%H-%M-%S")
-    save_name.mkdir()
-    logging.info(f"Working directory '{save_name}'")
-    orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointHandler())
-    checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
-        keep_period=config.checkpoint.keep_period,
-        max_to_keep=config.checkpoint.max_to_keep,
-        create=True,
-    )
-    checkpoint_manager = orbax.checkpoint.CheckpointManager(
-        save_name, orbax_checkpointer, checkpoint_opts
-    )
+    if config.enable_checkpointing:
+        save_name = Path("/mnt/disks/persist/checkpoints") / datetime.datetime.now().strftime("text-to-image-checkpoints_%Y-%d-%m_%H-%M-%S")
+        save_name.mkdir()
+        logging.info(f"Working directory '{save_name}'")
+        orbax_checkpointer = orbax.checkpoint.AsyncCheckpointer(orbax.checkpoint.PyTreeCheckpointHandler())
+        checkpoint_opts = orbax.checkpoint.CheckpointManagerOptions(
+            keep_period=config.checkpoint.keep_period,
+            max_to_keep=config.checkpoint.max_to_keep,
+            create=True,
+        )
+        checkpoint_manager = orbax.checkpoint.CheckpointManager(
+            save_name, orbax_checkpointer, checkpoint_opts
+        )
 
     logging.info(f"Loading tokenizer")
     tokenizer = load_tokenizer(config)
@@ -234,7 +234,9 @@ def main(config: mlc.ConfigDict) -> None:
 
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config, has_context=True)
-    save_args = orbax_utils.save_args_from_target(state)
+
+    if config.enable_checkpointing:
+        save_args = orbax_utils.save_args_from_target(state)
 
     logging.info(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
 
@@ -291,9 +293,10 @@ def main(config: mlc.ConfigDict) -> None:
             step=step,
         )
 
-        checkpoint_manager.save(
-            step, flax.jax_utils.unreplicate(state), save_kwargs={"save_args": save_args}
-        )
+        if config.enable_checkpointing:
+            checkpoint_manager.save(
+                step, flax.jax_utils.unreplicate(state), save_kwargs={"save_args": save_args}
+            )
 
         metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.trange(config.training.batches[1])
@@ -336,7 +339,8 @@ def main(config: mlc.ConfigDict) -> None:
                 )
             )
         )
-        img.save(Path(save_name) / f"sample-{step:08}.jpg")
+        if config.enable_checkpointing:
+            img.save(Path(save_name) / f"sample-{step:08}.jpg")
         wandb.log({"sample": wandb.Image(img)}, commit=True, step=step)
 
 if __name__ == "__main__":

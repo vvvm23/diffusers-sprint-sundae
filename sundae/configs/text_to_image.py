@@ -24,20 +24,18 @@ def get_config() -> mlc.ConfigDict:
         image_size=256,
         max_train_samples=-1,
         max_eval_samples=-1,
-        validation_split_percentage=10,
+        validation_split_percentage=1,
         preprocessing_num_workers=1
     )
     config.model = dict(
         model_name_or_path="sundae-default",
-        config_name="sundae-default",
+        config_name="text_to_image_default",
         num_tokens=16_384,
         dim=1024,
-        depth=[3, 12, 3],
+        depth=[2, 8, 2],
         shorten_factor=4,
         resample_type="linear",
         heads=8,
-        dim_head=64,
-        rotary_emb_dim=32,
         max_seq_len=32,  # effectively squared to 256
         parallel_block=False,
         tied_embedding=False,
@@ -55,7 +53,7 @@ def get_config() -> mlc.ConfigDict:
         steps=1_000_000,
         warmup_steps=4000,
         warmup_start_lr=1e-6,
-        end_learning_rate=3e-6,
+        end_learning_rate_scale=10,
         max_grad_norm=5.0,
         weight_decay=0.0,
         temperature=1.0,
@@ -71,5 +69,6 @@ def get_config() -> mlc.ConfigDict:
 
     config.debug_nans = False
     config.log_compile = False
+    config.enable_checkpointing = True
 
     return config

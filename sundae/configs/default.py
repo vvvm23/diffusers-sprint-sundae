@@ -19,7 +19,7 @@ def get_config() -> mlc.ConfigDict:
         train_file="",
         eval_file="",
         captions_column_name="caption",
-        overwrite_cache=True,
+        overwrite_cache=False,
         flip_p=0.5,
         image_size=256,
         max_train_samples=-1,
