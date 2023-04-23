@@ -37,7 +37,7 @@ def build_fast_sample_loop(
         )
 
         if text_encoder is not None:
-            conditioning = text_encoder(conditioning)
+            conditioning = text_encoder(conditioning)[0]
 
         # TODO: figure out how to pass 0dim (temp, proportion) to jit (or does it just work?)
         def sample_step(

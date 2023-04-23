@@ -36,8 +36,9 @@ def main(argv):
 
     logging.info(f"Config: {config}")
 
-    logging.info(f"Setting Huggingface cache directory to '{config.data.cache_dir}'")
-    os.environ['HF_HOME'] = config.data.cache_dir
+    if config.data.cache_dir:
+        logging.info(f"Setting Huggingface cache directory to '{config.data.cache_dir}'")
+        os.environ['HF_HOME'] = config.data.cache_dir
 
     from train_unconditional import main as _train_unconditional
     from train_text_to_image import main as _train_text_to_image

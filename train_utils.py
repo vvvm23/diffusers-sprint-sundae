@@ -102,9 +102,10 @@ def build_train_step(
             if classifier_free_embedding is not None and config.training.conditioning_dropout > 0.0:
                 key, subkey = jax.random.split(key)
                 mask = jax.random.uniform(subkey, (conditioning.shape[0],)) < config.training.conditioning_dropout
-                conditioning = einops.repeat(classifier_free_embedding, '1 ... -> n ...', n=conditioning.shape[0]) * mask + text_encoder(conditioning) * ~mask
+                mask = einops.rearrange(mask, 'n -> n 1 1')
+                conditioning = einops.repeat(classifier_free_embedding, '1 ... -> n ...', n=conditioning.shape[0]) * mask + text_encoder(conditioning)[0] * ~mask
             else:
-                conditioning = text_encoder(conditioning)
+                conditioning = text_encoder(conditioning)[0]
 
         def loss_fn(params, key):
             all_logits = []

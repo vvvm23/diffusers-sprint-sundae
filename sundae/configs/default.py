@@ -25,7 +25,8 @@ def get_config() -> mlc.ConfigDict:
         max_train_samples=-1,
         max_eval_samples=-1,
         validation_split_percentage=10,
-        preprocessing_num_workers=1
+        preprocessing_num_workers=1,
+        cache_dir=None
     )
     config.model = dict(
         model_name_or_path="sundae-default",

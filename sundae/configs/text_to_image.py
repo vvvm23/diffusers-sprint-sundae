@@ -7,7 +7,7 @@ def get_config() -> mlc.ConfigDict:
     config = mlc.ConfigDict()
 
     config.train_fn = "text_to_image"
-    config.batch_size = 32
+    config.batch_size = 64
     config.seed = 0
     config.do_train = True
 
@@ -25,7 +25,7 @@ def get_config() -> mlc.ConfigDict:
         max_train_samples=-1,
         max_eval_samples=-1,
         validation_split_percentage=1,
-        preprocessing_num_workers=8,
+        preprocessing_num_workers=0,
         cache_dir="/mnt/disks/persist/huggingface_cache",
     )
     config.model = dict(
@@ -36,7 +36,7 @@ def get_config() -> mlc.ConfigDict:
         depth=[2, 8, 2],
         shorten_factor=4,
         resample_type="linear",
-        heads=8,
+        heads=16,
         max_seq_len=32,  # effectively squared to 256
         parallel_block=False,
         tied_embedding=False,

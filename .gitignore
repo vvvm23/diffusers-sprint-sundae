@@ -137,3 +137,4 @@ samples/
 *.png
 *.swp
 wandb/
+hub/

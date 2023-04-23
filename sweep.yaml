@@ -22,25 +22,26 @@ parameters:
 
   config.training.steps:
     distribution: constant
-    value: 6000
+    value: 12000
   config.training.warmup_steps:
     distribution: constant
-    value: 1000
+    value: 2000
   config.training.unroll_steps:
     distribution: constant
     value: 2
-  config.training.learning_rate:
-    distribution: categorical
-    values: [0.0005, 0.0001, 0.00005, 0.00001, 0.000005]
   config.training.end_learning_rate_scale:
-    distribution: categorical
-    values: [10, 100]
+    distribution: constant
+    value: 100
   config.training.weight_decay:
     distribution: constant
     value: 0.0
   config.training.conditioning_dropout:
     distribution: constant
     value: 0.2
+
+  config.training.learning_rate:
+    distribution: categorical
+    values: [0.0005, 0.0001, 0.001]
 
   config.model.shorten_factor:
     distribution: constant
@@ -49,9 +50,12 @@ parameters:
     distribution: constant
     value: 1024
   config.model.parallel_block:
-    distribution: categorical
-    values: [true, false]
+    distribution: constant
+    value: false
   config.model.heads:
-    distribution: categorical
-    values: [8, 16]
+    distribution: constant
+    value: 16
 
+  config.model.depth:
+    distribution: categorical
+    values: [(2, 10, 2), (3, 8, 3), (4, 6, 4)]

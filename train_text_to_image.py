@@ -80,7 +80,7 @@ def load_tokenizer(config: mlc.ConfigDict) -> Union[CLIPTokenizer, CLIPTokenizer
 def tokenize_fn(
     examples: Dict[str, ArrayLike], 
     tokenizer: CLIPTokenizer, 
-    captions_column_name: str = "caption"
+    captions_column_name: str = "caption",
 ) -> Dict[str, ArrayLike]:
     captions = examples[captions_column_name]
     inputs = tokenizer(
@@ -88,9 +88,10 @@ def tokenize_fn(
         max_length=tokenizer.model_max_length, 
         padding="max_length", 
         truncation=True,
-        return_tensors="np"
+        return_tensors="np",
     )
     examples["input_ids"] = inputs.input_ids
+
     return examples
 
 
@@ -106,7 +107,6 @@ def load_datasets(
 
     datasets = load_dataset(
         config.data.name, 
-        # data_files=data_files
         data_dir=config.data.train_dir
     )
 
@@ -117,6 +117,8 @@ def load_datasets(
         )
     train_dataset = datasets["train"]
     eval_dataset = datasets["test"]
+    train_dataset = train_dataset.remove_columns(['image_id'])
+    eval_dataset = eval_dataset.remove_columns(['image_id'])
 
     _tokenize_fn = functools.partial(
         tokenize_fn,
@@ -124,40 +126,21 @@ def load_datasets(
         captions_column_name=config.data.captions_column_name
     )
 
-    if jax.process_index() == 0:
-        # TODO: do we have the memory for this? might have to do it on the go
-        train_dataset = train_dataset.map(
-            _tokenize_fn,
-            batched=True,
-            num_proc=config.data.preprocessing_num_workers,
-            remove_columns=[config.data.captions_column_name],
-            load_from_cache_file=not config.data.overwrite_cache,
-            desc="Running tokenizer on every caption in train dataset"
-        )
-        train_dataset = train_dataset.with_format("numpy")
+    train_dataset.set_transform(_tokenize_fn)
+    eval_dataset.set_transform(_tokenize_fn)
 
-        eval_dataset = eval_dataset.map(
-            _tokenize_fn,
-            batched=True,
-            num_proc=config.data.preprocessing_num_workers,
-            remove_columns=[config.data.captions_column_name],
-            load_from_cache_file=not config.data.overwrite_cache,
-            desc="Running tokenizer on every caption in train dataset"
-        )
-        eval_dataset = eval_dataset.with_format("numpy")
+    train_dataset.with_format("numpy")
+    eval_dataset.with_format("numpy")
 
     return train_dataset, eval_dataset
 
 
-def collate_fn(examples: Dict[str, ArrayLike], device_count: int) -> Dict[str, ArrayLike]:
-    rearrange = functools.partial(
-        einops.rearrange, 
-        pattern="(d b) n -> d b n",
-        d=device_count
-    )
-    examples["input_ids"] = rearrange(examples["input_ids"])
-    examples["encoding"] = rearrange(examples["encoding"])
-    return examples
+def collate_fn(examples: Dict[str, ArrayLike]) -> Dict[str, ArrayLike]:
+    output = {}
+    output["input_ids"] = np.stack([a['input_ids'] for a in examples], axis=0)
+    output["encoding"] = np.stack([a['encoding'] for a in examples], axis=0)
+
+    return output
 
 
 def create_loader(
@@ -170,7 +153,6 @@ def create_loader(
     batch_size = batch_size or config.batch_size
     _collate_fn = functools.partial(
         collate_fn,
-        device_count=jax.device_count()
     )
     loader = DataLoader(
         dataset,
@@ -243,9 +225,7 @@ def main(config: mlc.ConfigDict) -> None:
     logging.info(f"Loading FlaxCLIPTextModel")
     text_encoder = load_text_encoder(config)
 
-    # TODO: Fix classifier-free-guidance
     classifier_free_embedding = compute_classifer_free_embedding(config, text_encoder, tokenizer)
-
     train_step = build_train_step(config, train=True, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
     eval_step = build_train_step(config, train=False, text_encoder=text_encoder, classifier_free_embedding=classifier_free_embedding)
     # TODO: param all this, also can we only pass vqgan decoder params?
@@ -261,17 +241,29 @@ def main(config: mlc.ConfigDict) -> None:
     pmap_eval_step = jax.pmap(eval_step, "replication_axis", in_axes=(0, 0, 0, 0))
     pmap_sample_loop = jax.pmap(sample_loop, "replication_axis", in_axes=(0, 0, 0))
 
+    rearrange_fn = functools.partial(
+        einops.rearrange, 
+        pattern="(d b) n -> d b n",
+        d=replication_factor
+    )
+
     step = 0
-    while step < config.training.step:
+    while step < config.training.steps:
         metrics = dict(loss=0.0, accuracy=0.0)
 
         pb = tqdm.trange(config.training.batches[0])
-        for i in enumerate(pb):
+        for i in pb:
             batch = next(train_loader)
 
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = pmap_train_step(state, batch['encodings'], subkeys, conditioning=batch['input_ids'])
+            state, loss, accuracy = pmap_train_step(
+                state, 
+                rearrange_fn(batch['encoding']), 
+                subkeys, 
+                rearrange_fn(batch['input_ids'])
+            )
+            
             loss, accuracy = loss.mean(), accuracy.mean()
 
             metrics["loss"] += loss
@@ -304,7 +296,12 @@ def main(config: mlc.ConfigDict) -> None:
             batch = next(eval_loader)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)
-            state, loss, accuracy = pmap_eval_step(state, batch['encodings'], subkeys, conditioning=batch['input_ids'])
+            loss, accuracy = pmap_eval_step(
+                state, 
+                rearrange_fn(batch['encoding']), 
+                subkeys, 
+                rearrange_fn(batch['input_ids'])
+            )
             loss, accuracy = loss.mean(), accuracy.mean()
 
             metrics["loss"] += loss
@@ -326,10 +323,13 @@ def main(config: mlc.ConfigDict) -> None:
         )
 
         # TODO: how do we want to prompt this?
+        sample_prompts = ["An armchair in the shape of an avacado"]*config.batch_size
+        sample_tokens = tokenizer(sample_prompts, padding='max_length', max_length=config.text_encoder.max_length, return_tensors='np').input_ids
+        sample_tokens = rearrange_fn(sample_tokens)
         logging.info("sampling from current model")
         key, subkey = jax.random.split(key)
         subkeys = jax.random.split(subkey, replication_factor)
-        img = pmap_sample_loop(state.params, subkeys)
+        img = pmap_sample_loop(state.params, subkeys, sample_tokens)
         img = jnp.reshape(img, (-1, config.data.image_size, config.data.image_size, 3))
         sqrt_num_images = int(sqrt(img.shape[0]))
         img = custom_to_pil(
