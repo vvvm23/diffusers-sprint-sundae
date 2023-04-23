@@ -68,6 +68,7 @@ def load_text_encoder(config: mlc.ConfigDict) -> FlaxCLIPTextModel:
         config.text_encoder.model_name_or_path, 
         from_pt=config.text_encoder.from_pt
     )
+    text_encoder.params = jax.tree_util.tree_map(lambda p: jnp.asarray(p, dtype=jnp.bfloat16), text_encoder.params)
     return text_encoder
 
 
@@ -213,6 +214,8 @@ def main(config: mlc.ConfigDict) -> None:
     vqgan = vqgan_jax.convert_pt_model_to_jax.load_and_download_model(
         config.vqgan.name, dtype=vqgan_dtype
     )
+    del vqgan.params['encoder']
+    del vqgan.params['quant_conv']
 
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config, has_context=True)
@@ -256,7 +259,6 @@ def main(config: mlc.ConfigDict) -> None:
 
         pb = tqdm.trange(config.training.batches[0])
         for i in pb:
-            break
             batch = next(train_loader)
 
             key, subkey = jax.random.split(key)
@@ -297,7 +299,6 @@ def main(config: mlc.ConfigDict) -> None:
         metrics = dict(loss=0.0, accuracy=0.0)
         pb = tqdm.trange(config.training.batches[1])
         for i in pb:
-            break
             batch = next(eval_loader)
             key, subkey = jax.random.split(key)
             subkeys = jax.random.split(subkey, replication_factor)

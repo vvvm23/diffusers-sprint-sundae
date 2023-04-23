@@ -167,7 +167,6 @@ class Attention(nn.Module):
             q, k, v = map(
                 lambda t: einops.rearrange(t, "b n (h d) -> b n h d", h=h), (q, k, v)
             )
-            print(q.shape, k.shape, v.shape)
             out = dot_product_attention(q, k, v, mask=mask)
             out = einops.rearrange(out, "b n h d -> b n (h d)", h=h)
         else:
