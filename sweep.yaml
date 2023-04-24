@@ -2,10 +2,6 @@ name: diffusers-sprint-sundae
 description: Text-to-Image model sweeping for testing
 program: main.py
 method: grid
-early_terminate:
-  type: hyperband
-  min_iter: 2
-  eta: 2
 metric:
   name: eval.loss
   goal: minimize
@@ -15,7 +11,7 @@ parameters:
   config.train_fn:
     value: text_to_image
   config.enable_checkpointing:
-    value: false
+    value: true
 
   config.batch_size:
     distribution: constant
@@ -23,10 +19,10 @@ parameters:
 
   config.training.steps:
     distribution: constant
-    value: 10000
+    value: 100000
   config.training.warmup_steps:
     distribution: constant
-    value: 1000
+    value: 5000
   config.training.unroll_steps:
     distribution: constant
     value: 2
@@ -41,8 +37,8 @@ parameters:
     value: 0.2
 
   config.training.learning_rate:
-    distribution: categorical
-    values: [0.0005, 0.0001, 0.00005, 0.00001]
+    distribution: constant
+    value: 0.0001
 
   config.model.shorten_factor:
     distribution: constant
@@ -55,9 +51,9 @@ parameters:
     value: 16
 
   config.model.dim:
-    distribution: categorical
-    values: [1024, 2048]
+    distribution: constant
+    value: 1024
 
   config.model.depth:
     distribution: categorical
-    values: ['(2, 10, 2)', '(3, 8, 3)', '(4, 6, 4)']
+    values: ['(2, 24, 2)', '(3, 16, 3)']

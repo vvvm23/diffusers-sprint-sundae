@@ -33,7 +33,7 @@ def get_config() -> mlc.ConfigDict:
         config_name="text_to_image_default",
         num_tokens=16_384,
         dim=1024,
-        depth='(2, 8, 2)',
+        depth='(2, 24, 2)',
         shorten_factor=4,
         resample_type="linear",
         heads=16,
@@ -50,21 +50,21 @@ def get_config() -> mlc.ConfigDict:
         dim=1024,
     )
     config.training = dict(
-        learning_rate=4e-4,
+        learning_rate=1e-4,
         unroll_steps=2,
         steps=1_000_000,
         warmup_steps=4000,
         warmup_start_lr=1e-6,
-        end_learning_rate_scale=10,
+        end_learning_rate_scale=100,
         max_grad_norm=5.0,
         weight_decay=0.0,
         temperature=1.0,
-        batches=(2000, 200),
+        batches=(5000, 400),
         conditioning_dropout = 0.2
     )
     config.vqgan = dict(name="vq-f8", dtype="bfloat16")
 
-    config.checkpoint = dict(keep_period=100, max_to_keep=3)
+    config.checkpoint = dict(keep_period=100, max_to_keep=10)
 
     config.logging_dir = "./logs"
     config.report_to_wandb = True
