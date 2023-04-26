@@ -7,16 +7,16 @@ def get_config() -> mlc.ConfigDict:
     config = mlc.ConfigDict()
 
     config.train_fn = "text_to_image"
-    config.batch_size = 64
+    config.batch_size = 32
     config.seed = 0
     config.do_train = True
 
     config.data = dict(
         name="parquet",
         num_workers=4,
-        train_dir="/mnt/disks/persist/laion_art_images_vqganf8_encoded/",
+        train_dir="/mnt/disks/persist/laion_en_aesthetic_vqganf8_encoded/",
         validation_dir="",
-        train_file="/mnt/disks/persist/laion_art_images_vqganf8_encoded/",
+        train_file="/mnt/disks/persist/laion_en_aesthetic_vqganf8_encoded/",
         eval_file="",
         captions_column_name="caption",
         overwrite_cache=False,
@@ -24,7 +24,7 @@ def get_config() -> mlc.ConfigDict:
         image_size=256,
         max_train_samples=-1,
         max_eval_samples=-1,
-        validation_split_percentage=1,
+        validation_split_percentage=0.1,
         preprocessing_num_workers=0,
         cache_dir="/mnt/disks/persist/huggingface_cache",
     )
@@ -53,7 +53,7 @@ def get_config() -> mlc.ConfigDict:
         learning_rate=1e-4,
         unroll_steps=2,
         steps=1_800_000,
-        warmup_steps=2000,
+        warmup_steps=18_000,
         warmup_start_lr=1e-6,
         end_learning_rate_scale=100,
         max_grad_norm=5.0,
@@ -72,8 +72,8 @@ def get_config() -> mlc.ConfigDict:
     config.debug_nans = False
     config.log_compile = False
     config.enable_checkpointing = True
-    config.resume_from_checkpoint = False
-    config.resume_from_checkpoint_step = -1
-    config.resume_from_checkpoint_directory = ""
+    config.resume_from_checkpoint = True
+    config.resume_from_checkpoint_step = 70000
+    config.resume_from_checkpoint_directory = "/mnt/disks/persist/checkpoints/text-to-image-checkpoints_2023-25-04_08-44-11"
 
     return config

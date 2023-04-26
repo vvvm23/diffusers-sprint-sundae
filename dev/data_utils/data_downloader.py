@@ -6,8 +6,8 @@ import contexttimer
 from urllib.request import urlopen
 import requests
 from PIL import Image
-# import torch
-# from torchvision.transforms import functional as TF
+import torch
+from torchvision.transforms import functional as TF
 from multiprocessing import Pool
 from tqdm import tqdm
 import logging
@@ -24,14 +24,15 @@ requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.
 print(f'Starting to load at {datetime.now().isoformat(timespec="minutes")}')
 
 with contexttimer.Timer(prefix="Loading from HF dataset:"):
-    df = load_dataset('laion/laion-art', split='train').to_pandas()
+    # df = load_dataset('laion/laion-art', split='train').to_pandas()
+    df = load_dataset('laion/laion2B-en-aesthetic', split='train[:50%]').to_pandas()
     df = df[["URL", "TEXT"]]
 
 url_to_idx_map = {url: index for index, url, caption in df.itertuples()}
 print(f'Loaded {len(url_to_idx_map)} urls')
 
 # create base directory if it doesn't exist
-base_dir = os.path.join(os.getcwd(), "laion-art-images")
+base_dir = os.path.join(os.getcwd(), "laion-aesthetic-images")
 if not os.path.isdir(base_dir):
     os.makedirs(base_dir)
 

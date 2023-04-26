@@ -22,7 +22,7 @@ parameters:
     value: 1800000
   config.training.warmup_steps:
     distribution: constant
-    value: 2000
+    value: 18000
   config.training.unroll_steps:
     distribution: constant
     value: 2

@@ -226,6 +226,7 @@ def main(config: mlc.ConfigDict) -> None:
     if config.resume_from_checkpoint:
         state = checkpoint_manager.restore(
             step=config.resume_from_checkpoint_step, 
+            items=state,
             directory=config.resume_from_checkpoint_directory
         )
         
