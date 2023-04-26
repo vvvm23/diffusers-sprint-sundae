@@ -219,10 +219,16 @@ def main(config: mlc.ConfigDict) -> None:
 
     key, subkey = jax.random.split(key)
     state = create_train_state(subkey, config, has_context=True)
-
+  
     if config.enable_checkpointing:
         save_args = orbax_utils.save_args_from_target(state)
 
+    if config.resume_from_checkpoint:
+        state = checkpoint_manager.restore(
+            step=config.resume_from_checkpoint_step, 
+            directory=config.resume_from_checkpoint_directory
+        )
+        
     logging.info(f"Number of parameters: {sum(x.size for x in jax.tree_util.tree_leaves(state.params)):,}")
 
     logging.info(f"Loading FlaxCLIPTextModel")
