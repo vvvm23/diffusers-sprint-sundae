@@ -19,7 +19,7 @@ parameters:
 
   config.training.steps:
     distribution: constant
-    value: 100000
+    value: 70000
   config.training.warmup_steps:
     distribution: constant
     value: 5000
