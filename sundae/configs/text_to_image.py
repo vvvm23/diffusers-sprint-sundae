@@ -72,5 +72,8 @@ def get_config() -> mlc.ConfigDict:
     config.debug_nans = False
     config.log_compile = False
     config.enable_checkpointing = True
+    config.resume_from_checkpoint = False
+    config.resume_from_checkpoint_step = -1
+    config.resume_from_checkpoint_directory = ""
 
     return config
