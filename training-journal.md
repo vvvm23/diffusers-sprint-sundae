@@ -24,3 +24,9 @@ Initial results from unconditional suggested parallel vs non parallel is about t
 Tied embeddings made training super unstable.
 Also suggested more heads is good, fixing at 16.
 We decided to fix shorten factor at 4 for efficiency :) same for unroll.
+
+# Second and Third Stage of tuning
+We found that the next stage of sweeps resulted in the top 6 results being perfectly balanced among all 6 possible architectures :( so wholy inconclusive. This did allow us to fix the learning rate at 1e-4. 
+
+The final stage of sweeps fixed the learning rate here and tried two final models with depth (2, 24, 2) and (3, 16, 3). They were both the same, so we went with the former as it had the most parameters. Again, most our sweeps were not too conclusive which is unfortunate. The run also crashed so couldn't run for as many steps as we wanted.
+
