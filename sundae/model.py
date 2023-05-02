@@ -202,22 +202,18 @@ class Transformer(nn.Module):
     rotary_emb_dim: Optional[int] = None
     max_seq_len: int = 256
     parallel_block: bool = False
-    cross_attention_period: int = 2
     norm_out: bool = False
+    is_resample: bool = False
 
     def setup(self):
         self.layers = [
             (
                 PreNormResidual(Attention(self.heads, self.dim_head)),
+                PreNormResidual(Attention(self.heads, self.dim_head)) if not self.is_resample else None,
                 PreNormResidual(FeedForward(self.ff_mult)),
             )
             for _ in range(self.depth)
         ]
-
-        # TODO: seems to break if we cache here
-        # see https://github.com/google/flax/discussions/1921 for potential fix
-        # freqs = generate_embeddings(jnp.linspace(-1.0, 1.0, num=self.max_seq_len), self.rotary_emb_dim, max_freq=self.max_seq_len)
-        # self.rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
 
         self.norm = LayerNorm() if self.norm_out else None
 
@@ -227,7 +223,6 @@ class Transformer(nn.Module):
         context: Optional[ArrayLike] = None,
         mask: Optional[ArrayLike] = None,
     ):
-        # TODO: replace with caching
         rot_emb = None
         if self.rotary_emb_dim:
             freqs = generate_embeddings(
@@ -237,25 +232,40 @@ class Transformer(nn.Module):
             )
             rot_emb = broadcat((freqs[:, None, :], freqs[None, :, :]), axis=-1)
 
-        for i, (attn, ff) in enumerate(self.layers):
+        for attn, cross_attn, ff in self.layers:
             if self.parallel_block:  # gpt-j style arrangement
-                x = attn(
+                attn_out = attn(
                     x,
-                    context=context if (i % self.cross_attention_period == 0) else None,
+                    context=context if self.is_resample else None,
                     pos_emb=rot_emb,
                     mask=mask,
-                ) + ff(x)
-            else:
-                x = ff(
-                    attn(
+                )
+                if not self.is_resample:
+                    cross_attn_out = cross_attn(
                         x,
-                        context=context
-                        if (i % self.cross_attention_period == 0)
-                        else None,
+                        context=context,
                         pos_emb=rot_emb,
                         mask=mask,
                     )
+
+                ff_out = ff(x)
+                x = attn_out + (cross_attn_out if not self.is_resample else 0.0) + ff_out
+            else:
+                x = attn(
+                    x,
+                    context=context if self.is_resample else None,
+                    pos_emb=rot_emb,
+                    mask=mask,
                 )
+                if not self.is_resample:
+                    x = cross_attn(
+                        x,
+                        context=context,
+                        pos_emb=rot_emb,
+                        mask=mask,
+                    )
+
+                x = ff(x)
 
         if self.norm_out:
             x = self.norm(x)
@@ -331,12 +341,12 @@ class HourglassTransformer(nn.Module):
             )
 
         self.attn_resampling_pre_valley = (
-            Transformer(depth=1, max_seq_len=self.max_seq_len, **transformer_kwargs)
+            Transformer(depth=1, max_seq_len=self.max_seq_len, is_resample=True, **transformer_kwargs)
             if self.attn_resampling
             else None
         )
         self.attn_resampling_post_valley = (
-            Transformer(depth=1, max_seq_len=self.max_seq_len, **transformer_kwargs)
+            Transformer(depth=1, max_seq_len=self.max_seq_len, is_resample=True, **transformer_kwargs)
             if self.attn_resampling
             else None
         )
@@ -562,9 +572,9 @@ class SundaeModel(nn.Module):
 
 
 if __name__ == "__main__":
-    jax.config.update("jax_platform_name", "cpu")
+    # jax.config.update("jax_platform_name", "cpu")
     x = jnp.zeros((4, 256), dtype=jnp.int32)
-    # context = jnp.zeros((4, 5, 512))
+    context = jnp.zeros((4, 77, 256))
     key, model_key = jax.random.split(jax.random.PRNGKey(0))
     test_model = HourglassTransformerLM(
         num_tokens=1024,
@@ -576,6 +586,6 @@ if __name__ == "__main__":
         rotary_emb_dim=32,
         max_seq_len=16,
     )
-    params = test_model.init(model_key, x)
-    y = test_model.apply(params, x)
+    params = test_model.init(model_key, x, context=context)
+    y = test_model.apply(params, x, context=context)
     print("output:", y.shape, y.min(), y.mean(), y.max())

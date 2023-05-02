@@ -33,10 +33,10 @@ def get_config() -> mlc.ConfigDict:
         config_name="text_to_image_default",
         num_tokens=16_384,
         dim=1024,
-        depth='(2, 24, 2)',
+        depth='(2, 16, 2)',
         shorten_factor=4,
         resample_type="linear",
-        heads=16,
+        heads=8,
         max_seq_len=32,  # effectively squared to 256
         parallel_block=False,
         tied_embedding=False,
@@ -56,11 +56,11 @@ def get_config() -> mlc.ConfigDict:
         warmup_steps=18_000,
         warmup_start_lr=1e-6,
         end_learning_rate_scale=100,
-        max_grad_norm=5.0,
+        max_grad_norm=10.0,
         weight_decay=0.0,
         temperature=1.0,
         batches=(5000, 400),
-        conditioning_dropout = 0.2
+        conditioning_dropout = 0.1
     )
     config.vqgan = dict(name="vq-f8", dtype="bfloat16")
 
@@ -72,8 +72,8 @@ def get_config() -> mlc.ConfigDict:
     config.debug_nans = False
     config.log_compile = False
     config.enable_checkpointing = True
-    config.resume_from_checkpoint = True
-    config.resume_from_checkpoint_step = 70000
-    config.resume_from_checkpoint_directory = "/mnt/disks/persist/checkpoints/text-to-image-checkpoints_2023-25-04_08-44-11"
+    config.resume_from_checkpoint = False
+    config.resume_from_checkpoint_step = -1
+    config.resume_from_checkpoint_directory = ""
 
     return config
